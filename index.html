@@ -28,22 +28,28 @@ button:disabled{opacity:.45}
 .navs{display:flex;gap:7px}
 .week{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));padding:0 7px 7px;text-align:center;color:var(--muted);font-size:11px}
 .grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));border-top:1px solid var(--line)}
-.day{min-width:0;min-height:74px;padding:6px 4px;border-right:1px solid var(--line);border-bottom:1px solid var(--line);overflow:hidden;background:#fff}
+.day{min-width:0;min-height:112px;padding:6px 4px;border-right:1px solid var(--line);border-bottom:1px solid var(--line);overflow:hidden;background:#fff}
 .day:nth-child(7n){border-right:0}
 .day.other{background:#fafbfc;color:#c4c7ce}
 .day.selected{outline:2px solid #111827;outline-offset:-2px;background:#fbfbfd}
 .num{font-size:11px;font-weight:800}
 .today .num{display:inline-flex;align-items:center;justify-content:center;width:21px;height:21px;border-radius:7px;background:#111827;color:#fff}
-.minipeople{display:flex;flex-wrap:wrap;gap:3px;margin-top:5px}
-.person-mini{width:18px;height:18px;flex:0 0 18px;border-radius:6px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:9px;font-weight:900;box-shadow:inset 0 0 0 1px rgba(255,255,255,.45),0 1px 3px rgba(0,0,0,.12)}
-.more{font-size:9px;color:var(--muted);line-height:18px}
+.minipeople{display:flex;flex-wrap:wrap;align-content:flex-start;gap:3px;margin-top:5px}
+.person-mini{width:17px;height:17px;flex:0 0 17px;border-radius:6px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:9px;font-weight:900;box-shadow:inset 0 0 0 1px rgba(255,255,255,.45),0 1px 3px rgba(0,0,0,.12)}
+.more{display:none}
 .detail-card{margin-top:10px;padding:14px;overflow:visible}
 .detail-top{display:flex;justify-content:space-between;align-items:flex-start;gap:8px}
 .detail-title{font-size:17px;font-weight:900}
 .detail-date{font-size:11px;color:var(--muted);margin-top:3px}
 .editbtn{background:#111827;color:#fff;box-shadow:none;white-space:nowrap}
-.shift-block{margin-top:15px}
-.shift-title{font-size:12px;font-weight:900;color:#6b7280;margin-bottom:8px}
+.shift-block{
+  margin-top:12px;
+  padding:10px;
+  border:1px solid rgba(17,24,39,.08);
+  border-radius:14px;
+  background:rgba(148,163,184,.08)
+}
+.shift-title{font-size:12px;font-weight:900;color:#4b5563;margin-bottom:8px}
 .people-row{display:flex;flex-wrap:wrap;gap:8px}
 .person-wrap{margin-bottom:18px}
 .person-chip{width:44px;height:44px;border-radius:13px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:17px;font-weight:900;position:relative}
@@ -113,7 +119,7 @@ input{width:100%;min-width:0;border:1px solid #e2e5ea;border-radius:11px;padding
 .loading{position:fixed;inset:0;z-index:50;background:rgba(246,247,251,.82);display:none;align-items:center;justify-content:center;font-weight:900}
 .loading.show{display:flex}
 @media(max-width:360px){
-  .day{min-height:68px;padding:5px 3px}
+  .day{min-height:102px;padding:5px 3px}
   .person-mini{width:16px;height:16px;flex-basis:16px;font-size:8px;border-radius:5px}
   .lane{flex-basis:45vw;min-width:45vw}
 }
@@ -224,7 +230,7 @@ input{width:100%;min-width:0;border:1px solid #e2e5ea;border-radius:11px;padding
 </div>
 
 <div class="toast" id="toast"></div>
-<div class="loading" id="loading">同步中…</div>
+<div class="loading" id="loading">儲存中…</div>
 
 <script>
 /**
@@ -364,6 +370,14 @@ async function loadBootstrap(showLoading=true){
   }
 }
 
+
+function replaceDaySchedules(date, newRows){
+  state.schedules = state.schedules.filter(r => r.date !== date);
+  if(Array.isArray(newRows) && newRows.length){
+    state.schedules.push(...newRows);
+  }
+}
+
 function rowsForDate(date){
   return state.schedules.filter(r => r.date === date);
 }
@@ -395,7 +409,7 @@ function renderCalendar(){
       +(k===selected?' selected':'')
       +(k===keyOf(now)?' today':'');
 
-    const icons=ids.slice(0,6).map(id=>{
+    const icons=ids.map(id=>{
       const p=pById(id);
       return p
         ? `<div class="person-mini" style="background:${escapeHtml(p.color)}" title="${escapeHtml(p.name)}">${escapeHtml(p.short)}</div>`
@@ -404,7 +418,7 @@ function renderCalendar(){
 
     cell.innerHTML=
       `<div class="num">${d.getDate()}</div>`+
-      `<div class="minipeople">${icons}${ids.length>6?`<span class="more">+${ids.length-6}</span>`:''}</div>`;
+      `<div class="minipeople">${icons}</div>`;
 
     cell.onclick=()=>{
       selected=k;
@@ -734,14 +748,16 @@ $('#saveBtn').onclick=async()=>{
 
   setLoading(true);
   try{
-    await gasCall('saveDay',{
+    const res=await gasCall('saveDay',{
       date:selected,
       assignments
     });
 
-    await loadBootstrap(false);
+    replaceDaySchedules(selected,res.schedules||[]);
+    renderCalendar();
+    renderDetail();
     $('#sheetwrap').classList.remove('show');
-    toast('排班已儲存');
+    toast('已儲存');
   }catch(err){
     toast(err.message);
   }finally{
@@ -755,14 +771,16 @@ $('#cancelClear').onclick=()=>$('#clearConfirm').classList.remove('show');
 $('#confirmClear').onclick=async()=>{
   setLoading(true);
   try{
-    await gasCall('clearDay',{
+    const res=await gasCall('clearDay',{
       date:selected
     });
 
-    await loadBootstrap(false);
+    replaceDaySchedules(selected,res.schedules||[]);
     state.draft=makeDraft();
     $('#clearConfirm').classList.remove('show');
     renderEditor();
+    renderCalendar();
+    renderDetail();
     toast('當天排班已清空');
   }catch(err){
     toast(err.message);
