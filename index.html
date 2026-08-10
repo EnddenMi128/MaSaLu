@@ -52,9 +52,9 @@ button:disabled{opacity:.45}
 .fab{position:fixed;z-index:10;left:10px;right:10px;bottom:calc(14px + env(safe-area-inset-bottom));height:54px;border:0;border-radius:17px;background:#111827;color:#fff;font-size:16px;font-weight:900;box-shadow:0 14px 30px rgba(17,24,39,.25)}
 .status{font-size:11px;color:var(--muted);padding:10px 2px 0;text-align:center}
 
-.sheetwrap,.modalwrap{position:fixed;inset:0;background:rgba(17,24,39,.35);display:none;z-index:20}
+.sheetwrap{position:fixed;inset:0;background:rgba(17,24,39,.35);display:none;z-index:20}
 .sheetwrap{align-items:flex-end}
-.sheetwrap.show,.modalwrap.show{display:flex}
+.sheetwrap.show{display:flex}
 .sheet{width:100vw;max-width:100vw;max-height:94dvh;overflow-y:auto;overflow-x:hidden;background:#fff;border-radius:24px 24px 0 0;padding:10px 10px calc(18px + env(safe-area-inset-bottom))}
 .handle{width:40px;height:5px;background:#d7d9df;border-radius:999px;margin:0 auto 10px}
 .sheethead{display:flex;justify-content:space-between;align-items:center;gap:8px}
@@ -128,7 +128,6 @@ input{width:100%;min-width:0;border:1px solid #e2e5ea;border-radius:11px;padding
     </div>
     <div class="top-actions">
       <button class="iconbtn" id="reloadBtn" title="重新整理">↻</button>
-      <button class="iconbtn" id="apiBtn" title="API 設定">⚙</button>
       <button class="iconbtn" id="todayBtn">今</button>
     </div>
   </div>
@@ -224,54 +223,22 @@ input{width:100%;min-width:0;border:1px solid #e2e5ea;border-radius:11px;padding
   </div>
 </div>
 
-<div class="modalwrap" id="apiModal">
-  <div class="modal">
-    <div class="modal-title">GAS API 設定</div>
-    <div class="modal-text">
-      貼上 Apps Script「網頁應用程式」部署完成後的 <b>/exec</b> 網址。<br>
-      此網址只存在本機瀏覽器，不含任何排班資料。
-    </div>
-    <input id="gasUrlInput" placeholder="https://script.google.com/macros/s/.../exec">
-    <div class="modal-actions">
-      <button class="btn secondary" id="cancelApiBtn">取消</button>
-      <button class="btn primary" id="saveApiBtn">儲存並連線</button>
-    </div>
-  </div>
-</div>
-
-<div class="modalwrap" id="adminModal">
-  <div class="modal">
-    <div class="modal-title">團長管理模式</div>
-    <div class="modal-text">請輸入執行 GAS <b>INIT()</b> 後取得的 ADMIN KEY。一般團員不需要金鑰即可看班表。</div>
-    <input id="adminKeyInput" type="password" autocomplete="off" placeholder="ADMIN KEY">
-    <div class="modal-actions">
-      <button class="btn secondary" id="cancelAdminBtn">取消</button>
-      <button class="btn primary" id="verifyAdminBtn">進入編輯</button>
-    </div>
-  </div>
-</div>
-
 <div class="toast" id="toast"></div>
 <div class="loading" id="loading">同步中…</div>
 
 <script>
 /**
  * HTML 不含 staff / shifts / schedules。
- * 唯一保存在瀏覽器的是：
- * - GAS Web App URL
- * - 團長 ADMIN KEY（若團長有登入管理模式）
+ * GAS Web App URL 固定於前端；人員、班別、排班全部由 GAS / Google Sheet 載入。
+ * 目前依需求暫不啟用管理密碼。
  */
-const STORAGE = {
-  GAS_URL: 'masalu_gas_url',
-  ADMIN_KEY: 'masalu_admin_key'
-};
+const GAS_URL = 'https://script.google.com/macros/s/AKfycbxhRiznkXzHyXwB04NSYKEwBBNFS3iJctHvqK-QUzNnRR1pPV8SXu-RMXI8ykCljtfI/exec';
 
 const state = {
   staff: [],
   shifts: [],
   schedules: [],
   settings: {},
-  adminVerified: false,
   draft: null
 };
 
@@ -279,7 +246,6 @@ const now = new Date();
 let viewYear = now.getFullYear();
 let viewMonth = now.getMonth();
 let selected = keyOf(now);
-let pendingAdminAction = null;
 let touchState = null;
 
 const $ = s => document.querySelector(s);
@@ -317,12 +283,7 @@ function escapeHtml(s){
     .replaceAll("'","&#039;");
 }
 
-function getGasUrl(){
-  return (localStorage.getItem(STORAGE.GAS_URL) || '').trim().replace(/\/+$/,'');
-}
-function getAdminKey(){
-  return localStorage.getItem(STORAGE.ADMIN_KEY) || '';
-}
+function getGasUrl(){ return GAS_URL; }
 
 /**
  * JSONP API：
@@ -379,11 +340,6 @@ function gasCall(action, payload = {}, timeoutMs = 15000){
 }
 
 async function loadBootstrap(showLoading=true){
-  if(!getGasUrl()){
-    openApiModal(true);
-    return;
-  }
-
   if(showLoading)setLoading(true);
 
   try{
@@ -394,20 +350,11 @@ async function loadBootstrap(showLoading=true){
     state.settings=res.settings||{};
 
     $('#appName').textContent=state.settings.app_name || 'MASALU';
-    $('#statusText').textContent=`已同步 · ${res.serverTime || ''}`;
+    $('#statusText').textContent=`已同步 · DB ${res.databaseId || ''} · ${res.serverTime || ''}`;
 
     renderCalendar();
     renderDetail();
 
-    if(getAdminKey()){
-      try{
-        await gasCall('verifyAdmin',{adminKey:getAdminKey()},6000);
-        state.adminVerified=true;
-      }catch(_){
-        state.adminVerified=false;
-        localStorage.removeItem(STORAGE.ADMIN_KEY);
-      }
-    }
   }catch(err){
     $('#statusText').textContent='連線失敗';
     $('#detailBody').innerHTML=`<div class="empty">${escapeHtml(err.message)}</div>`;
@@ -523,18 +470,6 @@ function makeDraft(){
   );
 
   return draft;
-}
-
-async function ensureAdmin(action){
-  if(state.adminVerified && getAdminKey()){
-    action();
-    return;
-  }
-
-  pendingAdminAction=action;
-  $('#adminKeyInput').value=getAdminKey();
-  $('#adminModal').classList.add('show');
-  setTimeout(()=>$('#adminKeyInput').focus(),100);
 }
 
 function openEditor(){
@@ -708,7 +643,7 @@ function renderSettings(){
 async function runMutation(action,payload){
   setLoading(true);
   try{
-    await gasCall(action,{...payload,adminKey:getAdminKey()});
+    await gasCall(action,{...payload});
     await loadBootstrap(false);
 
     if($('#sheetwrap').classList.contains('show')){
@@ -719,10 +654,6 @@ async function runMutation(action,payload){
     return true;
   }catch(err){
     toast(err.message);
-    if(/管理金鑰/.test(err.message)){
-      state.adminVerified=false;
-      localStorage.removeItem(STORAGE.ADMIN_KEY);
-    }
     return false;
   }finally{
     setLoading(false);
@@ -737,7 +668,6 @@ $('#addShiftBtn').onclick=async()=>{
   setLoading(true);
   try{
     await gasCall('addShift',{
-      adminKey:getAdminKey(),
       name,
       isOff:false
     });
@@ -764,7 +694,6 @@ $('#addStaffBtn').onclick=async()=>{
   setLoading(true);
   try{
     await gasCall('addStaff',{
-      adminKey:getAdminKey(),
       name,
       short:shortName.slice(0,1),
       color
@@ -806,7 +735,6 @@ $('#saveBtn').onclick=async()=>{
   setLoading(true);
   try{
     await gasCall('saveDay',{
-      adminKey:getAdminKey(),
       date:selected,
       assignments
     });
@@ -828,7 +756,6 @@ $('#confirmClear').onclick=async()=>{
   setLoading(true);
   try{
     await gasCall('clearDay',{
-      adminKey:getAdminKey(),
       date:selected
     });
 
@@ -844,8 +771,8 @@ $('#confirmClear').onclick=async()=>{
   }
 };
 
-$('#editBtn').onclick=()=>ensureAdmin(openEditor);
-$('#fab').onclick=()=>ensureAdmin(openEditor);
+$('#editBtn').onclick=openEditor;
+$('#fab').onclick=openEditor;
 
 $('#closeBtn').onclick=()=>$('#sheetwrap').classList.remove('show');
 $('#sheetwrap').onclick=e=>{
@@ -874,64 +801,7 @@ $('#todayBtn').onclick=()=>{
 
 $('#reloadBtn').onclick=()=>loadBootstrap(true);
 
-function openApiModal(force=false){
-  $('#gasUrlInput').value=getGasUrl();
-  $('#cancelApiBtn').style.display=force && !getGasUrl() ? 'none' : '';
-  $('#apiModal').classList.add('show');
-  setTimeout(()=>$('#gasUrlInput').focus(),100);
-}
-
-$('#apiBtn').onclick=()=>openApiModal(false);
-$('#cancelApiBtn').onclick=()=>$('#apiModal').classList.remove('show');
-
-$('#saveApiBtn').onclick=async()=>{
-  const url=$('#gasUrlInput').value.trim().replace(/\/+$/,'');
-  if(!/^https:\/\/script\.google\.com\/macros\/s\/.+\/exec$/.test(url)){
-    return toast('請貼上 GAS /exec 網址');
-  }
-
-  localStorage.setItem(STORAGE.GAS_URL,url);
-  state.adminVerified=false;
-  localStorage.removeItem(STORAGE.ADMIN_KEY);
-  $('#apiModal').classList.remove('show');
-  await loadBootstrap(true);
-};
-
-$('#cancelAdminBtn').onclick=()=>{
-  pendingAdminAction=null;
-  $('#adminModal').classList.remove('show');
-};
-
-$('#verifyAdminBtn').onclick=async()=>{
-  const key=$('#adminKeyInput').value.trim();
-  if(!key)return toast('請輸入 ADMIN KEY');
-
-  setLoading(true);
-  try{
-    await gasCall('verifyAdmin',{adminKey:key});
-    localStorage.setItem(STORAGE.ADMIN_KEY,key);
-    state.adminVerified=true;
-    $('#adminModal').classList.remove('show');
-
-    const action=pendingAdminAction;
-    pendingAdminAction=null;
-    if(action)action();
-  }catch(err){
-    toast(err.message);
-  }finally{
-    setLoading(false);
-  }
-};
-
-(function boot(){
-  const params=new URLSearchParams(location.search);
-  const gas=params.get('gas');
-  if(gas && /^https:\/\/script\.google\.com\/macros\/s\/.+\/exec$/.test(gas)){
-    localStorage.setItem(STORAGE.GAS_URL,gas.replace(/\/+$/,''));
-    history.replaceState({},'',location.pathname);
-  }
-  loadBootstrap(true);
-})();
+(function boot(){ loadBootstrap(true); })();
 </script>
 </body>
 </html>
