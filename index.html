@@ -14,12 +14,14 @@
 html,body{margin:0;width:100%;max-width:100%;overflow-x:hidden;background:var(--bg);color:var(--text)}
 body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans TC",sans-serif;-webkit-text-size-adjust:100%;touch-action:manipulation}
 button,input{font:inherit;font-size:16px}
+button:disabled{opacity:.45}
 .app{width:100vw;max-width:100vw;min-height:100dvh;padding:calc(10px + env(safe-area-inset-top)) 10px calc(92px + env(safe-area-inset-bottom))}
-.topbar{display:flex;justify-content:space-between;align-items:center;padding:4px 2px 12px}
+.topbar{display:flex;justify-content:space-between;align-items:center;padding:4px 2px 12px;gap:8px}
 .brand{font-size:20px;font-weight:900;letter-spacing:.5px}
 .sub{font-size:12px;color:var(--muted);margin-top:2px}
+.top-actions{display:flex;gap:7px}
 .iconbtn,.btn{border:0;background:#fff;border-radius:13px;min-height:42px;padding:0 13px;font-weight:800;box-shadow:var(--shadow)}
-.iconbtn{width:42px;padding:0;font-size:20px}
+.iconbtn{width:42px;padding:0;font-size:18px}
 .calendar-card,.detail-card{width:100%;background:#fff;border-radius:20px;box-shadow:var(--shadow);overflow:hidden}
 .cal-head{display:flex;justify-content:space-between;align-items:center;padding:14px}
 .month-title{font-size:18px;font-weight:900}
@@ -48,9 +50,11 @@ button,input{font:inherit;font-size:16px}
 .person-chip small{position:absolute;bottom:-17px;width:68px;text-align:center;color:#4b5563;font-size:10px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .empty{padding:18px 0 4px;color:var(--muted);font-size:13px}
 .fab{position:fixed;z-index:10;left:10px;right:10px;bottom:calc(14px + env(safe-area-inset-bottom));height:54px;border:0;border-radius:17px;background:#111827;color:#fff;font-size:16px;font-weight:900;box-shadow:0 14px 30px rgba(17,24,39,.25)}
+.status{font-size:11px;color:var(--muted);padding:10px 2px 0;text-align:center}
 
-.sheetwrap{position:fixed;inset:0;background:rgba(17,24,39,.35);display:none;align-items:flex-end;z-index:20}
-.sheetwrap.show{display:flex}
+.sheetwrap,.modalwrap{position:fixed;inset:0;background:rgba(17,24,39,.35);display:none;z-index:20}
+.sheetwrap{align-items:flex-end}
+.sheetwrap.show,.modalwrap.show{display:flex}
 .sheet{width:100vw;max-width:100vw;max-height:94dvh;overflow-y:auto;overflow-x:hidden;background:#fff;border-radius:24px 24px 0 0;padding:10px 10px calc(18px + env(safe-area-inset-bottom))}
 .handle{width:40px;height:5px;background:#d7d9df;border-radius:999px;margin:0 auto 10px}
 .sheethead{display:flex;justify-content:space-between;align-items:center;gap:8px}
@@ -60,7 +64,6 @@ button,input{font:inherit;font-size:16px}
 .mode-row{display:flex;gap:7px;margin:10px 0}
 .mode{flex:1;border:1px solid #e5e7eb;background:#fff;border-radius:12px;padding:10px;font-weight:900}
 .mode.active{background:#111827;color:#fff;border-color:#111827}
-
 .pool,.lane{border:1.5px dashed #d7dae2;border-radius:16px;padding:9px}
 .pool{background:#fafbfc;min-height:76px}
 #lanes{display:flex;gap:9px;overflow-x:auto;overflow-y:hidden;padding:2px 1px 8px;-webkit-overflow-scrolling:touch;scroll-snap-type:x proximity}
@@ -70,10 +73,9 @@ button,input{font:inherit;font-size:16px}
 .lanename{font-size:13px;font-weight:900;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .dragpeople{display:flex;flex-wrap:wrap;gap:7px}
 .lane .dragpeople{flex-direction:row;align-items:flex-start;align-content:flex-start;flex-wrap:wrap}
-.dragperson{min-height:36px;padding:0 9px;border-radius:11px;color:#fff;display:flex;align-items:center;gap:6px;font-weight:900;touch-action:none;user-select:none;cursor:grab;box-shadow:0 4px 10px rgba(17,24,39,.1)}
-.lane .dragperson{width:auto;max-width:100%;flex:0 0 auto}
+.dragperson{min-height:36px;width:auto;max-width:100%;flex:0 0 auto;padding:0 9px;border-radius:11px;color:#fff;display:flex;align-items:center;gap:6px;font-weight:900;touch-action:none;user-select:none;cursor:grab;box-shadow:0 4px 10px rgba(17,24,39,.1)}
 .dragperson b{font-size:15px}
-.dragperson span{font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dragperson span{font-size:11px;white-space:nowrap}
 .dragging{opacity:.5;transform:scale(.97)}
 
 .settings{display:none;margin-top:11px;padding:11px;background:#f7f8fa;border-radius:15px}
@@ -88,10 +90,10 @@ input{width:100%;min-width:0;border:1px solid #e2e5ea;border-radius:11px;padding
 .person-form input[type=color]{padding:3px;height:42px}
 .person-form .smallbtn{grid-column:1/-1}
 .person-settings-list{display:flex;flex-direction:column;gap:7px;margin-top:10px}
-.person-setting-item{display:flex;align-items:center;gap:8px;background:#fff;border:1px solid #e7e9ee;border-radius:12px;padding:7px 8px}
-.person-setting-icon{width:30px;height:30px;border-radius:9px;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:900;flex:none}
+.person-setting-item{display:grid;grid-template-columns:34px minmax(0,1fr) 56px 52px;align-items:center;gap:7px;background:#fff;border:1px solid #e7e9ee;border-radius:12px;padding:7px 8px}
+.person-setting-icon{width:30px;height:30px;border-radius:9px;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:900}
 .person-setting-name{font-size:13px;font-weight:900;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.person-setting-short{font-size:11px;color:var(--muted);margin-left:auto;flex:none}
+.person-setting-short{font-size:11px;color:var(--muted)}
 .danger{background:#fff0f0;color:#b42318}
 .actions{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-top:13px}
 .primary{background:#111827;color:#fff;box-shadow:none}
@@ -100,7 +102,16 @@ input{width:100%;min-width:0;border:1px solid #e2e5ea;border-radius:11px;padding
 .clear-confirm.show{display:block}
 .clear-confirm-actions{display:flex;gap:7px;margin-top:8px}
 .clear-confirm-actions button{flex:1}
-.toast{position:fixed;z-index:30;left:50%;bottom:calc(78px + env(safe-area-inset-bottom));transform:translateX(-50%);display:none;background:#111827;color:#fff;border-radius:11px;padding:9px 13px;font-size:12px;white-space:nowrap}
+
+.modalwrap{align-items:center;justify-content:center;padding:18px}
+.modal{width:100%;max-width:430px;background:#fff;border-radius:20px;padding:16px;box-shadow:var(--shadow)}
+.modal-title{font-size:18px;font-weight:900}
+.modal-text{font-size:12px;color:var(--muted);line-height:1.6;margin:6px 0 12px}
+.modal-actions{display:flex;gap:8px;margin-top:10px}
+.modal-actions button{flex:1}
+.toast{position:fixed;z-index:40;left:50%;bottom:calc(78px + env(safe-area-inset-bottom));transform:translateX(-50%);display:none;background:#111827;color:#fff;border-radius:11px;padding:9px 13px;font-size:12px;white-space:nowrap}
+.loading{position:fixed;inset:0;z-index:50;background:rgba(246,247,251,.82);display:none;align-items:center;justify-content:center;font-weight:900}
+.loading.show{display:flex}
 @media(max-width:360px){
   .day{min-height:68px;padding:5px 3px}
   .person-mini{width:16px;height:16px;flex-basis:16px;font-size:8px;border-radius:5px}
@@ -111,14 +122,24 @@ input{width:100%;min-width:0;border:1px solid #e2e5ea;border-radius:11px;padding
 <body>
 <div class="app">
   <div class="topbar">
-    <div><div class="brand">MASALU</div><div class="sub">排班月曆</div></div>
-    <button class="iconbtn" id="todayBtn">今</button>
+    <div>
+      <div class="brand" id="appName">MASALU</div>
+      <div class="sub">排班月曆</div>
+    </div>
+    <div class="top-actions">
+      <button class="iconbtn" id="reloadBtn" title="重新整理">↻</button>
+      <button class="iconbtn" id="apiBtn" title="API 設定">⚙</button>
+      <button class="iconbtn" id="todayBtn">今</button>
+    </div>
   </div>
 
   <section class="calendar-card">
     <div class="cal-head">
       <div class="month-title" id="monthTitle"></div>
-      <div class="navs"><button class="iconbtn" id="prevBtn">‹</button><button class="iconbtn" id="nextBtn">›</button></div>
+      <div class="navs">
+        <button class="iconbtn" id="prevBtn">‹</button>
+        <button class="iconbtn" id="nextBtn">›</button>
+      </div>
     </div>
     <div class="week"><div>日</div><div>一</div><div>二</div><div>三</div><div>四</div><div>五</div><div>六</div></div>
     <div class="grid" id="calendar"></div>
@@ -126,11 +147,16 @@ input{width:100%;min-width:0;border:1px solid #e2e5ea;border-radius:11px;padding
 
   <section class="detail-card">
     <div class="detail-top">
-      <div><div class="detail-title" id="detailTitle"></div><div class="detail-date" id="detailDate"></div></div>
+      <div>
+        <div class="detail-title" id="detailTitle">排班</div>
+        <div class="detail-date" id="detailDate"></div>
+      </div>
       <button class="btn editbtn" id="editBtn">編輯排班</button>
     </div>
-    <div id="detailBody"></div>
+    <div id="detailBody"><div class="empty">載入中…</div></div>
   </section>
+
+  <div class="status" id="statusText"></div>
 </div>
 
 <button class="fab" id="fab">＋ 新增 / 編輯排班</button>
@@ -139,7 +165,10 @@ input{width:100%;min-width:0;border:1px solid #e2e5ea;border-radius:11px;padding
   <div class="sheet">
     <div class="handle"></div>
     <div class="sheethead">
-      <div><div class="sheettitle" id="sheetTitle">編輯排班</div><div class="help">左右班別拖放；設定可新增班別與人員。</div></div>
+      <div>
+        <div class="sheettitle" id="sheetTitle">編輯排班</div>
+        <div class="help">拖曳人員到左右班別；設定可新增／修改班別與人員。</div>
+      </div>
       <button class="close" id="closeBtn">×</button>
     </div>
 
@@ -151,16 +180,19 @@ input{width:100%;min-width:0;border:1px solid #e2e5ea;border-radius:11px;padding
     <div class="settings" id="settingsBox">
       <div class="settings-section">
         <div class="settings-title">班別設定</div>
-        <div class="settings-note">班別依此順序由左到右顯示。</div>
+        <div class="settings-note">資料全部存在 GAS / Google Sheet，前端沒有寫死班別。</div>
         <div id="shiftInputs"></div>
-        <div class="fieldrow"><input id="newShiftName" placeholder="新增班別，例如：中班"><button class="smallbtn" id="addShiftBtn">新增</button></div>
+        <div class="fieldrow">
+          <input id="newShiftName" placeholder="新增班別，例如：中班">
+          <button class="smallbtn" id="addShiftBtn">新增</button>
+        </div>
       </div>
 
       <div class="settings-section">
         <div class="settings-title">人員設定</div>
-        <div class="settings-note">所有畫面皆依此名單順序排序；新增人員會排在最後。</div>
+        <div class="settings-note">所有畫面依 GAS 的 sort_order 排序，新人會自動排最後。</div>
         <div class="person-form">
-          <input id="newStaffName" placeholder="姓名，例如：佳玲">
+          <input id="newStaffName" placeholder="姓名">
           <input id="newStaffShort" maxlength="1" placeholder="代表字">
           <input id="newStaffColor" type="color" value="#7C3AED">
           <button class="smallbtn" id="addStaffBtn">新增人員</button>
@@ -171,11 +203,13 @@ input{width:100%;min-width:0;border:1px solid #e2e5ea;border-radius:11px;padding
 
     <div id="scheduleArea">
       <div class="shift-title">尚未安排</div>
-      <div class="pool dropzone" id="unassigned" data-zone="unassigned"><div class="dragpeople"></div></div>
+      <div class="pool dropzone" id="unassigned" data-zone="unassigned">
+        <div class="dragpeople"></div>
+      </div>
       <div id="lanes"></div>
 
       <div class="clear-confirm" id="clearConfirm">
-        確定要清空這一天的全部排班嗎？
+        確定清空這一天的全部排班？
         <div class="clear-confirm-actions">
           <button class="smallbtn" id="cancelClear">取消</button>
           <button class="smallbtn danger" id="confirmClear">確定清空</button>
@@ -189,59 +223,216 @@ input{width:100%;min-width:0;border:1px solid #e2e5ea;border-radius:11px;padding
     </div>
   </div>
 </div>
+
+<div class="modalwrap" id="apiModal">
+  <div class="modal">
+    <div class="modal-title">GAS API 設定</div>
+    <div class="modal-text">
+      貼上 Apps Script「網頁應用程式」部署完成後的 <b>/exec</b> 網址。<br>
+      此網址只存在本機瀏覽器，不含任何排班資料。
+    </div>
+    <input id="gasUrlInput" placeholder="https://script.google.com/macros/s/.../exec">
+    <div class="modal-actions">
+      <button class="btn secondary" id="cancelApiBtn">取消</button>
+      <button class="btn primary" id="saveApiBtn">儲存並連線</button>
+    </div>
+  </div>
+</div>
+
+<div class="modalwrap" id="adminModal">
+  <div class="modal">
+    <div class="modal-title">團長管理模式</div>
+    <div class="modal-text">請輸入執行 GAS <b>INIT()</b> 後取得的 ADMIN KEY。一般團員不需要金鑰即可看班表。</div>
+    <input id="adminKeyInput" type="password" autocomplete="off" placeholder="ADMIN KEY">
+    <div class="modal-actions">
+      <button class="btn secondary" id="cancelAdminBtn">取消</button>
+      <button class="btn primary" id="verifyAdminBtn">進入編輯</button>
+    </div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
+<div class="loading" id="loading">同步中…</div>
 
 <script>
-const defaults = [
-  {id:'zhou',name:'周政',short:'政',color:'#3B82F6'},
-  {id:'ying',name:'乙瑄',short:'乙',color:'#EC4899'},
-  {id:'lin',name:'林淇',short:'淇',color:'#8B5CF6'},
-  {id:'mi',name:'小米',short:'米',color:'#F97316'},
-  {id:'yong',name:'勇翰',short:'翰',color:'#F59E0B'},
-  {id:'wang',name:'王玲',short:'玲',color:'#14B8A6'},
-  {id:'fang',name:'方芳',short:'芳',color:'#EF4444'},
-  {id:'yuqi',name:'鈺琪',short:'鈺',color:'#06B6D4'},
-  {id:'zhaoting',name:'妱婷',short:'婷',color:'#84CC16'},
-  {id:'tingxian',name:'庭嫻',short:'庭',color:'#6366F1'}
-];
+/**
+ * HTML 不含 staff / shifts / schedules。
+ * 唯一保存在瀏覽器的是：
+ * - GAS Web App URL
+ * - 團長 ADMIN KEY（若團長有登入管理模式）
+ */
+const STORAGE = {
+  GAS_URL: 'masalu_gas_url',
+  ADMIN_KEY: 'masalu_admin_key'
+};
 
-const STORE='masalu_schedule_v7';
-let saved={};
-try{
-  saved=JSON.parse(localStorage.getItem(STORE)||'{}');
-}catch(e){}
-let staff=Array.isArray(saved.staff)&&saved.staff.length?saved.staff:defaults.map(x=>({...x}));
-let shifts=Array.isArray(saved.shifts)&&saved.shifts.length?saved.shifts:['早班','晚班','休假'];
-let schedules=saved.schedules||{};
+const state = {
+  staff: [],
+  shifts: [],
+  schedules: [],
+  settings: {},
+  adminVerified: false,
+  draft: null
+};
 
-function persist(){localStorage.setItem(STORE,JSON.stringify({staff,shifts,schedules}))}
-function staffIndex(id){return staff.findIndex(p=>p.id===id)}
-function sortIds(ids){return [...new Set(ids)].filter(id=>staffIndex(id)>=0).sort((a,b)=>staffIndex(a)-staffIndex(b))}
-function pById(id){return staff.find(p=>p.id===id)}
-function pad(n){return String(n).padStart(2,'0')}
-function keyOf(d){return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`}
-function dateFromKey(k){const[a,b,c]=k.split('-').map(Number);return new Date(a,b-1,c)}
-function isOff(name){return ['休假','休','off','休息'].includes(String(name).trim().toLowerCase())}
-function toast(t){const el=document.getElementById('toast');el.textContent=t;el.style.display='block';setTimeout(()=>el.style.display='none',1300)}
+const now = new Date();
+let viewYear = now.getFullYear();
+let viewMonth = now.getMonth();
+let selected = keyOf(now);
+let pendingAdminAction = null;
+let touchState = null;
 
-const now=new Date();
-let viewYear=now.getFullYear(),viewMonth=now.getMonth();
-let selected=keyOf(now);
-let draft=null;
+const $ = s => document.querySelector(s);
+const $$ = s => [...document.querySelectorAll(s)];
 
-function scheduledWorkIds(k){
-  const sch=schedules[k]||{};
-  let ids=[];
-  Object.entries(sch).forEach(([shift,arr])=>{
-    if(!isOff(shift)) ids.push(...arr);
+function pad(n){ return String(n).padStart(2,'0'); }
+function keyOf(d){ return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`; }
+function dateFromKey(k){ const [y,m,d]=k.split('-').map(Number); return new Date(y,m-1,d); }
+function staffIndex(id){ return state.staff.findIndex(p => p.id === id); }
+function sortIds(ids){
+  return [...new Set(ids)]
+    .filter(id => staffIndex(id) >= 0)
+    .sort((a,b) => staffIndex(a) - staffIndex(b));
+}
+function pById(id){ return state.staff.find(p => p.id === id); }
+function shiftById(id){ return state.shifts.find(s => s.id === id); }
+function isWorkShift(id){
+  const s = shiftById(id);
+  return !!s && !s.isOff;
+}
+function setLoading(v){ $('#loading').classList.toggle('show', !!v); }
+function toast(text){
+  const el=$('#toast');
+  el.textContent=text;
+  el.style.display='block';
+  clearTimeout(el._timer);
+  el._timer=setTimeout(()=>el.style.display='none',1500);
+}
+function escapeHtml(s){
+  return String(s ?? '')
+    .replaceAll('&','&amp;')
+    .replaceAll('<','&lt;')
+    .replaceAll('>','&gt;')
+    .replaceAll('"','&quot;')
+    .replaceAll("'","&#039;");
+}
+
+function getGasUrl(){
+  return (localStorage.getItem(STORAGE.GAS_URL) || '').trim().replace(/\/+$/,'');
+}
+function getAdminKey(){
+  return localStorage.getItem(STORAGE.ADMIN_KEY) || '';
+}
+
+/**
+ * JSONP API：
+ * 可直接從 GitHub Pages 呼叫 GAS，不依賴 fetch CORS。
+ */
+function gasCall(action, payload = {}, timeoutMs = 15000){
+  const gasUrl = getGasUrl();
+  if(!gasUrl) return Promise.reject(new Error('尚未設定 GAS API 網址'));
+
+  return new Promise((resolve,reject)=>{
+    const cb='__masalu_cb_'+Date.now()+'_'+Math.random().toString(36).slice(2,8);
+    const script=document.createElement('script');
+    let finished=false;
+
+    const cleanup=()=>{
+      try{ delete window[cb]; }catch(_){ window[cb]=undefined; }
+      script.remove();
+    };
+
+    const timer=setTimeout(()=>{
+      if(finished)return;
+      finished=true;
+      cleanup();
+      reject(new Error('GAS 連線逾時'));
+    },timeoutMs);
+
+    window[cb]=(res)=>{
+      if(finished)return;
+      finished=true;
+      clearTimeout(timer);
+      cleanup();
+      if(res && res.ok) resolve(res);
+      else reject(new Error(res && res.error ? res.error : 'GAS 回傳錯誤'));
+    };
+
+    script.onerror=()=>{
+      if(finished)return;
+      finished=true;
+      clearTimeout(timer);
+      cleanup();
+      reject(new Error('無法載入 GAS API，請確認部署網址與公開權限'));
+    };
+
+    const qs=new URLSearchParams({
+      action,
+      callback: cb,
+      payload: JSON.stringify(payload),
+      _: String(Date.now())
+    });
+
+    script.src=gasUrl+'?'+qs.toString();
+    document.head.appendChild(script);
   });
+}
+
+async function loadBootstrap(showLoading=true){
+  if(!getGasUrl()){
+    openApiModal(true);
+    return;
+  }
+
+  if(showLoading)setLoading(true);
+
+  try{
+    const res=await gasCall('bootstrap');
+    state.staff=Array.isArray(res.staff)?res.staff:[];
+    state.shifts=Array.isArray(res.shifts)?res.shifts:[];
+    state.schedules=Array.isArray(res.schedules)?res.schedules:[];
+    state.settings=res.settings||{};
+
+    $('#appName').textContent=state.settings.app_name || 'MASALU';
+    $('#statusText').textContent=`已同步 · ${res.serverTime || ''}`;
+
+    renderCalendar();
+    renderDetail();
+
+    if(getAdminKey()){
+      try{
+        await gasCall('verifyAdmin',{adminKey:getAdminKey()},6000);
+        state.adminVerified=true;
+      }catch(_){
+        state.adminVerified=false;
+        localStorage.removeItem(STORAGE.ADMIN_KEY);
+      }
+    }
+  }catch(err){
+    $('#statusText').textContent='連線失敗';
+    $('#detailBody').innerHTML=`<div class="empty">${escapeHtml(err.message)}</div>`;
+    toast(err.message);
+  }finally{
+    if(showLoading)setLoading(false);
+  }
+}
+
+function rowsForDate(date){
+  return state.schedules.filter(r => r.date === date);
+}
+
+function scheduledWorkIds(date){
+  const ids=rowsForDate(date)
+    .filter(r => isWorkShift(r.shiftId))
+    .map(r => r.staffId);
   return sortIds(ids);
 }
 
 function renderCalendar(){
-  document.getElementById('monthTitle').textContent=`${viewYear} 年 ${viewMonth+1} 月`;
-  const grid=document.getElementById('calendar');
+  $('#monthTitle').textContent=`${viewYear} 年 ${viewMonth+1} 月`;
+  const grid=$('#calendar');
   grid.innerHTML='';
+
   const first=new Date(viewYear,viewMonth,1);
   const start=new Date(viewYear,viewMonth,1-first.getDay());
 
@@ -250,132 +441,216 @@ function renderCalendar(){
     d.setDate(start.getDate()+i);
     const k=keyOf(d);
     const ids=scheduledWorkIds(k);
+
     const cell=document.createElement('div');
-    cell.className='day'+(d.getMonth()!==viewMonth?' other':'')+(k===selected?' selected':'')+(k===keyOf(now)?' today':'');
+    cell.className='day'
+      +(d.getMonth()!==viewMonth?' other':'')
+      +(k===selected?' selected':'')
+      +(k===keyOf(now)?' today':'');
+
     const icons=ids.slice(0,6).map(id=>{
       const p=pById(id);
-      return p?`<div class="person-mini" style="background:${p.color}" title="${p.name}">${p.short}</div>`:'';
+      return p
+        ? `<div class="person-mini" style="background:${escapeHtml(p.color)}" title="${escapeHtml(p.name)}">${escapeHtml(p.short)}</div>`
+        : '';
     }).join('');
-    cell.innerHTML=`<div class="num">${d.getDate()}</div><div class="minipeople">${icons}${ids.length>6?`<span class="more">+${ids.length-6}</span>`:''}</div>`;
-    cell.onclick=()=>{selected=k;renderCalendar();renderDetail()};
+
+    cell.innerHTML=
+      `<div class="num">${d.getDate()}</div>`+
+      `<div class="minipeople">${icons}${ids.length>6?`<span class="more">+${ids.length-6}</span>`:''}</div>`;
+
+    cell.onclick=()=>{
+      selected=k;
+      renderCalendar();
+      renderDetail();
+    };
+
     grid.appendChild(cell);
   }
 }
 
 function renderDetail(){
   const d=dateFromKey(selected);
-  document.getElementById('detailTitle').textContent=`${d.getDate()} 日排班`;
-  document.getElementById('detailDate').textContent=`${d.getFullYear()} 年 ${d.getMonth()+1} 月 ${d.getDate()} 日`;
-  const body=document.getElementById('detailBody');
-  const sch=schedules[selected]||{};
-  const any=Object.values(sch).some(a=>Array.isArray(a)&&a.length);
-  if(!any){body.innerHTML='<div class="empty">這一天尚未排班。</div>';return}
+  $('#detailTitle').textContent=`${d.getDate()} 日排班`;
+  $('#detailDate').textContent=`${d.getFullYear()} 年 ${d.getMonth()+1} 月 ${d.getDate()} 日`;
+
+  const body=$('#detailBody');
+  const rows=rowsForDate(selected);
+
+  if(!rows.length){
+    body.innerHTML='<div class="empty">這一天尚未排班。</div>';
+    return;
+  }
+
   body.innerHTML='';
-  shifts.forEach(shift=>{
-    const ids=sortIds(sch[shift]||[]);
+
+  state.shifts.forEach(shift=>{
+    const ids=sortIds(
+      rows.filter(r=>r.shiftId===shift.id).map(r=>r.staffId)
+    );
     if(!ids.length)return;
+
     const block=document.createElement('div');
     block.className='shift-block';
-    block.innerHTML=`<div class="shift-title">${shift}</div><div class="people-row">${
-      ids.map(id=>{
-        const p=pById(id); if(!p)return '';
-        return `<div class="person-wrap"><div class="person-chip" style="background:${p.color}">${p.short}<small>${p.name}</small></div></div>`;
-      }).join('')
-    }</div>`;
+    block.innerHTML=
+      `<div class="shift-title">${escapeHtml(shift.name)}</div>`+
+      `<div class="people-row">${
+        ids.map(id=>{
+          const p=pById(id);
+          if(!p)return '';
+          return `<div class="person-wrap"><div class="person-chip" style="background:${escapeHtml(p.color)}">${escapeHtml(p.short)}<small>${escapeHtml(p.name)}</small></div></div>`;
+        }).join('')
+      }</div>`;
+
     body.appendChild(block);
   });
 }
 
 function makeDraft(){
-  const sch=schedules[selected]||{};
+  const rows=rowsForDate(selected);
+  const draft={unassigned:[]};
   const used=new Set();
-  const x={unassigned:[]};
-  shifts.forEach(s=>{
-    x[s]=sortIds(sch[s]||[]);
-    x[s].forEach(id=>used.add(id));
+
+  state.shifts.forEach(s=>{
+    draft[s.id]=sortIds(
+      rows.filter(r=>r.shiftId===s.id).map(r=>r.staffId)
+    );
+    draft[s.id].forEach(id=>used.add(id));
   });
-  x.unassigned=sortIds(staff.map(p=>p.id).filter(id=>!used.has(id)));
-  return x;
+
+  draft.unassigned=sortIds(
+    state.staff.map(p=>p.id).filter(id=>!used.has(id))
+  );
+
+  return draft;
+}
+
+async function ensureAdmin(action){
+  if(state.adminVerified && getAdminKey()){
+    action();
+    return;
+  }
+
+  pendingAdminAction=action;
+  $('#adminKeyInput').value=getAdminKey();
+  $('#adminModal').classList.add('show');
+  setTimeout(()=>$('#adminKeyInput').focus(),100);
 }
 
 function openEditor(){
-  draft=makeDraft();
+  state.draft=makeDraft();
   const d=dateFromKey(selected);
-  document.getElementById('sheetTitle').textContent=`${d.getMonth()+1}/${d.getDate()} 編輯排班`;
-  document.querySelectorAll('.mode').forEach((b,i)=>b.classList.toggle('active',i===0));
-  document.getElementById('settingsBox').classList.remove('show');
-  document.getElementById('scheduleArea').style.display='';
-  document.getElementById('clearConfirm').classList.remove('show');
+  $('#sheetTitle').textContent=`${d.getMonth()+1}/${d.getDate()} 編輯排班`;
+  $$('.mode').forEach((b,i)=>b.classList.toggle('active',i===0));
+  $('#settingsBox').classList.remove('show');
+  $('#scheduleArea').style.display='';
+  $('#clearConfirm').classList.remove('show');
   renderEditor();
-  document.getElementById('sheetwrap').classList.add('show');
+  $('#sheetwrap').classList.add('show');
 }
 
 function dragPerson(id){
   const p=pById(id);
+  if(!p)return document.createElement('span');
+
   const el=document.createElement('div');
-  el.className='dragperson';el.draggable=true;el.dataset.id=id;
+  el.className='dragperson';
+  el.draggable=true;
+  el.dataset.id=id;
   el.style.background=p.color;
-  el.innerHTML=`<b>${p.short}</b><span>${p.name}</span>`;
-  el.addEventListener('dragstart',e=>{el.classList.add('dragging');e.dataTransfer.setData('text/plain',id)});
+  el.innerHTML=`<b>${escapeHtml(p.short)}</b><span>${escapeHtml(p.name)}</span>`;
+
+  el.addEventListener('dragstart',e=>{
+    el.classList.add('dragging');
+    e.dataTransfer.setData('text/plain',id);
+  });
   el.addEventListener('dragend',()=>el.classList.remove('dragging'));
+
   setupTouchDrag(el);
   return el;
 }
 
 function renderEditor(){
-  Object.keys(draft).forEach(k=>draft[k]=sortIds(draft[k]||[]));
+  if(!state.draft)return;
 
-  const un=document.querySelector('#unassigned .dragpeople');
+  Object.keys(state.draft).forEach(k=>{
+    state.draft[k]=sortIds(state.draft[k]||[]);
+  });
+
+  const un=$('#unassigned .dragpeople');
   un.innerHTML='';
-  draft.unassigned.forEach(id=>un.appendChild(dragPerson(id)));
-  setupDrop(document.getElementById('unassigned'));
+  state.draft.unassigned.forEach(id=>un.appendChild(dragPerson(id)));
+  setupDrop($('#unassigned'));
 
-  const lanes=document.getElementById('lanes');
+  const lanes=$('#lanes');
   lanes.innerHTML='';
-  shifts.forEach(shift=>{
+
+  state.shifts.forEach(shift=>{
     const lane=document.createElement('div');
-    lane.className='lane dropzone';lane.dataset.zone=shift;
-    lane.innerHTML=`<div class="lanehead"><div class="lanename">${shift}</div><div style="font-size:11px;color:#9aa0a6">${draft[shift].length} 人</div></div><div class="dragpeople"></div>`;
-    draft[shift].forEach(id=>lane.querySelector('.dragpeople').appendChild(dragPerson(id)));
+    lane.className='lane dropzone';
+    lane.dataset.zone=shift.id;
+    lane.innerHTML=
+      `<div class="lanehead">`+
+        `<div class="lanename">${escapeHtml(shift.name)}</div>`+
+        `<div style="font-size:11px;color:#9aa0a6">${(state.draft[shift.id]||[]).length} 人</div>`+
+      `</div>`+
+      `<div class="dragpeople"></div>`;
+
+    (state.draft[shift.id]||[]).forEach(id=>{
+      lane.querySelector('.dragpeople').appendChild(dragPerson(id));
+    });
+
     setupDrop(lane);
     lanes.appendChild(lane);
   });
+
   renderSettings();
 }
 
 function movePerson(id,target){
-  Object.keys(draft).forEach(k=>draft[k]=draft[k].filter(x=>x!==id));
-  if(!draft[target])draft[target]=[];
-  draft[target].push(id);
-  draft[target]=sortIds(draft[target]);
+  if(!state.draft)return;
+
+  Object.keys(state.draft).forEach(k=>{
+    state.draft[k]=(state.draft[k]||[]).filter(x=>x!==id);
+  });
+
+  if(!state.draft[target])state.draft[target]=[];
+  state.draft[target].push(id);
+  state.draft[target]=sortIds(state.draft[target]);
   renderEditor();
 }
 
 function setupDrop(zone){
-  zone.ondragover=e=>{e.preventDefault();zone.classList.add('over')};
+  zone.ondragover=e=>{e.preventDefault();zone.classList.add('over');};
   zone.ondragleave=()=>zone.classList.remove('over');
-  zone.ondrop=e=>{e.preventDefault();zone.classList.remove('over');movePerson(e.dataTransfer.getData('text/plain'),zone.dataset.zone)};
+  zone.ondrop=e=>{
+    e.preventDefault();
+    zone.classList.remove('over');
+    movePerson(e.dataTransfer.getData('text/plain'),zone.dataset.zone);
+  };
 }
-let touchState=null;
+
 function setupTouchDrag(el){
   el.addEventListener('pointerdown',e=>{
     if(e.pointerType==='mouse')return;
     touchState={el,id:el.dataset.id};
-    try{el.setPointerCapture(e.pointerId)}catch(_){}
+    try{el.setPointerCapture(e.pointerId);}catch(_){}
     el.classList.add('dragging');
   });
+
   el.addEventListener('pointermove',e=>{
-    if(!touchState||touchState.el!==el)return;
-    document.querySelectorAll('.dropzone').forEach(z=>z.classList.remove('over'));
+    if(!touchState || touchState.el!==el)return;
+    $$('.dropzone').forEach(z=>z.classList.remove('over'));
     const t=document.elementFromPoint(e.clientX,e.clientY);
     const z=t&&t.closest('.dropzone');
     if(z)z.classList.add('over');
   });
+
   el.addEventListener('pointerup',e=>{
-    if(!touchState||touchState.el!==el)return;
+    if(!touchState || touchState.el!==el)return;
     const t=document.elementFromPoint(e.clientX,e.clientY);
     const z=t&&t.closest('.dropzone');
-    document.querySelectorAll('.dropzone').forEach(x=>x.classList.remove('over'));
+    $$('.dropzone').forEach(x=>x.classList.remove('over'));
     el.classList.remove('dragging');
     if(z)movePerson(el.dataset.id,z.dataset.zone);
     touchState=null;
@@ -383,109 +658,280 @@ function setupTouchDrag(el){
 }
 
 function renderSettings(){
-  const si=document.getElementById('shiftInputs');
-  si.innerHTML='';
-  shifts.forEach((s,i)=>{
+  const shiftWrap=$('#shiftInputs');
+  shiftWrap.innerHTML='';
+
+  state.shifts.forEach(shift=>{
     const row=document.createElement('div');
     row.className='fieldrow';
-    row.innerHTML=`<input value="${s}"><button class="smallbtn danger">刪除</button>`;
-    row.querySelector('input').onchange=e=>{
-      const n=e.target.value.trim();
-      if(!n||n===s||shifts.includes(n)){e.target.value=s;return}
-      shifts[i]=n;
-      if(draft[s]){draft[n]=draft[s];delete draft[s]}
-      Object.values(schedules).forEach(day=>{if(day[s]){day[n]=day[s];delete day[s]}})
-      persist();renderEditor();renderCalendar();renderDetail();
+    row.innerHTML=
+      `<input value="${escapeHtml(shift.name)}">`+
+      `<button class="smallbtn danger">刪除</button>`;
+
+    const input=row.querySelector('input');
+    input.onchange=async()=>{
+      const name=input.value.trim();
+      if(!name || name===shift.name){
+        input.value=shift.name;
+        return;
+      }
+      await runMutation('updateShift',{id:shift.id,name});
     };
-    row.querySelector('button').onclick=()=>{
-      if(shifts.length<=1)return toast('至少保留一個班別');
-      const ids=draft[s]||[];
-      draft.unassigned=sortIds([...draft.unassigned,...ids]);
-      delete draft[s];
-      shifts.splice(i,1);
-      Object.values(schedules).forEach(day=>delete day[s]);
-      persist();renderEditor();renderCalendar();renderDetail();
+
+    row.querySelector('button').onclick=async()=>{
+      await runMutation('deleteShift',{id:shift.id});
     };
-    si.appendChild(row);
+
+    shiftWrap.appendChild(row);
   });
 
-  const list=document.getElementById('staffSettingsList');
+  const list=$('#staffSettingsList');
   list.innerHTML='';
-  staff.forEach((p,i)=>{
+
+  state.staff.forEach((p,i)=>{
     const row=document.createElement('div');
     row.className='person-setting-item';
-    row.innerHTML=`<div class="person-setting-icon" style="background:${p.color}">${p.short}</div><div class="person-setting-name">${i+1}. ${p.name}</div><div class="person-setting-short">${p.short}</div><button class="smallbtn danger" style="min-height:34px;padding:0 9px;font-size:12px">刪除</button>`;
-    row.querySelector('button').onclick=()=>{
-      staff=staff.filter(x=>x.id!==p.id);
-      Object.values(schedules).forEach(day=>Object.keys(day).forEach(s=>day[s]=day[s].filter(id=>id!==p.id)));
-      Object.keys(draft).forEach(k=>draft[k]=draft[k].filter(id=>id!==p.id));
-      persist();renderEditor();renderCalendar();renderDetail();
+    row.innerHTML=
+      `<div class="person-setting-icon" style="background:${escapeHtml(p.color)}">${escapeHtml(p.short)}</div>`+
+      `<div class="person-setting-name">${i+1}. ${escapeHtml(p.name)}</div>`+
+      `<div class="person-setting-short">${escapeHtml(p.short)}</div>`+
+      `<button class="smallbtn danger" style="min-height:34px;padding:0 8px;font-size:12px">刪除</button>`;
+
+    row.querySelector('button').onclick=async()=>{
+      await runMutation('deleteStaff',{id:p.id});
     };
+
     list.appendChild(row);
   });
 }
 
-document.getElementById('addShiftBtn').onclick=()=>{
-  const input=document.getElementById('newShiftName');
-  const n=input.value.trim();
-  if(!n)return toast('請輸入班別名稱');
-  if(shifts.includes(n))return toast('班別已存在');
-  shifts.push(n);draft[n]=[];input.value='';persist();renderEditor();
+async function runMutation(action,payload){
+  setLoading(true);
+  try{
+    await gasCall(action,{...payload,adminKey:getAdminKey()});
+    await loadBootstrap(false);
+
+    if($('#sheetwrap').classList.contains('show')){
+      state.draft=makeDraft();
+      renderEditor();
+    }
+    toast('已同步');
+    return true;
+  }catch(err){
+    toast(err.message);
+    if(/管理金鑰/.test(err.message)){
+      state.adminVerified=false;
+      localStorage.removeItem(STORAGE.ADMIN_KEY);
+    }
+    return false;
+  }finally{
+    setLoading(false);
+  }
+}
+
+$('#addShiftBtn').onclick=async()=>{
+  const input=$('#newShiftName');
+  const name=input.value.trim();
+  if(!name)return toast('請輸入班別名稱');
+
+  setLoading(true);
+  try{
+    await gasCall('addShift',{
+      adminKey:getAdminKey(),
+      name,
+      isOff:false
+    });
+    input.value='';
+    await loadBootstrap(false);
+    state.draft=makeDraft();
+    renderEditor();
+    toast('已新增班別');
+  }catch(err){
+    toast(err.message);
+  }finally{
+    setLoading(false);
+  }
 };
 
-document.getElementById('addStaffBtn').onclick=()=>{
-  const name=document.getElementById('newStaffName').value.trim();
-  const short=document.getElementById('newStaffShort').value.trim() || (name?name[0]:'');
-  const color=document.getElementById('newStaffColor').value;
+$('#addStaffBtn').onclick=async()=>{
+  const name=$('#newStaffName').value.trim();
+  const shortName=$('#newStaffShort').value.trim() || (name ? name[0] : '');
+  const color=$('#newStaffColor').value;
+
   if(!name)return toast('請輸入姓名');
-  const id='p_'+Date.now().toString(36);
-  staff.push({id,name,short:short.slice(0,1),color});
-  draft.unassigned=sortIds([...draft.unassigned,id]);
-  document.getElementById('newStaffName').value='';
-  document.getElementById('newStaffShort').value='';
-  persist();renderEditor();renderCalendar();toast('已新增人員');
+  if(!shortName)return toast('請輸入代表字');
+
+  setLoading(true);
+  try{
+    await gasCall('addStaff',{
+      adminKey:getAdminKey(),
+      name,
+      short:shortName.slice(0,1),
+      color
+    });
+
+    $('#newStaffName').value='';
+    $('#newStaffShort').value='';
+
+    await loadBootstrap(false);
+    state.draft=makeDraft();
+    renderEditor();
+    toast('已新增人員');
+  }catch(err){
+    toast(err.message);
+  }finally{
+    setLoading(false);
+  }
 };
 
-document.querySelectorAll('.mode').forEach(btn=>{
+$$('.mode').forEach(btn=>{
   btn.onclick=()=>{
-    document.querySelectorAll('.mode').forEach(x=>x.classList.remove('active'));
+    $$('.mode').forEach(x=>x.classList.remove('active'));
     btn.classList.add('active');
+
     const settings=btn.dataset.mode==='settings';
-    document.getElementById('settingsBox').classList.toggle('show',settings);
-    document.getElementById('scheduleArea').style.display=settings?'none':'';
+    $('#settingsBox').classList.toggle('show',settings);
+    $('#scheduleArea').style.display=settings?'none':'';
+
     if(settings)renderSettings();
   };
 });
 
-document.getElementById('saveBtn').onclick=()=>{
-  const out={};
-  shifts.forEach(s=>out[s]=sortIds(draft[s]||[]));
-  schedules[selected]=out;
-  persist();renderCalendar();renderDetail();
-  document.getElementById('sheetwrap').classList.remove('show');
-  toast('排班已儲存');
+$('#saveBtn').onclick=async()=>{
+  const assignments={};
+  state.shifts.forEach(s=>{
+    assignments[s.id]=sortIds(state.draft[s.id]||[]);
+  });
+
+  setLoading(true);
+  try{
+    await gasCall('saveDay',{
+      adminKey:getAdminKey(),
+      date:selected,
+      assignments
+    });
+
+    await loadBootstrap(false);
+    $('#sheetwrap').classList.remove('show');
+    toast('排班已儲存');
+  }catch(err){
+    toast(err.message);
+  }finally{
+    setLoading(false);
+  }
 };
 
-document.getElementById('clearBtn').onclick=()=>document.getElementById('clearConfirm').classList.add('show');
-document.getElementById('cancelClear').onclick=()=>document.getElementById('clearConfirm').classList.remove('show');
-document.getElementById('confirmClear').onclick=()=>{
-  delete schedules[selected];
-  persist();
-  draft=makeDraft();
-  document.getElementById('clearConfirm').classList.remove('show');
-  renderEditor();renderCalendar();renderDetail();
-  toast('當天排班已清空');
+$('#clearBtn').onclick=()=>$('#clearConfirm').classList.add('show');
+$('#cancelClear').onclick=()=>$('#clearConfirm').classList.remove('show');
+
+$('#confirmClear').onclick=async()=>{
+  setLoading(true);
+  try{
+    await gasCall('clearDay',{
+      adminKey:getAdminKey(),
+      date:selected
+    });
+
+    await loadBootstrap(false);
+    state.draft=makeDraft();
+    $('#clearConfirm').classList.remove('show');
+    renderEditor();
+    toast('當天排班已清空');
+  }catch(err){
+    toast(err.message);
+  }finally{
+    setLoading(false);
+  }
 };
 
-document.getElementById('editBtn').onclick=openEditor;
-document.getElementById('fab').onclick=openEditor;
-document.getElementById('closeBtn').onclick=()=>document.getElementById('sheetwrap').classList.remove('show');
-document.getElementById('sheetwrap').onclick=e=>{if(e.target.id==='sheetwrap')e.currentTarget.classList.remove('show')};
-document.getElementById('prevBtn').onclick=()=>{viewMonth--;if(viewMonth<0){viewMonth=11;viewYear--}renderCalendar()};
-document.getElementById('nextBtn').onclick=()=>{viewMonth++;if(viewMonth>11){viewMonth=0;viewYear++}renderCalendar()};
-document.getElementById('todayBtn').onclick=()=>{viewYear=now.getFullYear();viewMonth=now.getMonth();selected=keyOf(now);renderCalendar();renderDetail()};
+$('#editBtn').onclick=()=>ensureAdmin(openEditor);
+$('#fab').onclick=()=>ensureAdmin(openEditor);
 
-renderCalendar();renderDetail();
+$('#closeBtn').onclick=()=>$('#sheetwrap').classList.remove('show');
+$('#sheetwrap').onclick=e=>{
+  if(e.target.id==='sheetwrap')e.currentTarget.classList.remove('show');
+};
+
+$('#prevBtn').onclick=()=>{
+  viewMonth--;
+  if(viewMonth<0){viewMonth=11;viewYear--;}
+  renderCalendar();
+};
+
+$('#nextBtn').onclick=()=>{
+  viewMonth++;
+  if(viewMonth>11){viewMonth=0;viewYear++;}
+  renderCalendar();
+};
+
+$('#todayBtn').onclick=()=>{
+  viewYear=now.getFullYear();
+  viewMonth=now.getMonth();
+  selected=keyOf(now);
+  renderCalendar();
+  renderDetail();
+};
+
+$('#reloadBtn').onclick=()=>loadBootstrap(true);
+
+function openApiModal(force=false){
+  $('#gasUrlInput').value=getGasUrl();
+  $('#cancelApiBtn').style.display=force && !getGasUrl() ? 'none' : '';
+  $('#apiModal').classList.add('show');
+  setTimeout(()=>$('#gasUrlInput').focus(),100);
+}
+
+$('#apiBtn').onclick=()=>openApiModal(false);
+$('#cancelApiBtn').onclick=()=>$('#apiModal').classList.remove('show');
+
+$('#saveApiBtn').onclick=async()=>{
+  const url=$('#gasUrlInput').value.trim().replace(/\/+$/,'');
+  if(!/^https:\/\/script\.google\.com\/macros\/s\/.+\/exec$/.test(url)){
+    return toast('請貼上 GAS /exec 網址');
+  }
+
+  localStorage.setItem(STORAGE.GAS_URL,url);
+  state.adminVerified=false;
+  localStorage.removeItem(STORAGE.ADMIN_KEY);
+  $('#apiModal').classList.remove('show');
+  await loadBootstrap(true);
+};
+
+$('#cancelAdminBtn').onclick=()=>{
+  pendingAdminAction=null;
+  $('#adminModal').classList.remove('show');
+};
+
+$('#verifyAdminBtn').onclick=async()=>{
+  const key=$('#adminKeyInput').value.trim();
+  if(!key)return toast('請輸入 ADMIN KEY');
+
+  setLoading(true);
+  try{
+    await gasCall('verifyAdmin',{adminKey:key});
+    localStorage.setItem(STORAGE.ADMIN_KEY,key);
+    state.adminVerified=true;
+    $('#adminModal').classList.remove('show');
+
+    const action=pendingAdminAction;
+    pendingAdminAction=null;
+    if(action)action();
+  }catch(err){
+    toast(err.message);
+  }finally{
+    setLoading(false);
+  }
+};
+
+(function boot(){
+  const params=new URLSearchParams(location.search);
+  const gas=params.get('gas');
+  if(gas && /^https:\/\/script\.google\.com\/macros\/s\/.+\/exec$/.test(gas)){
+    localStorage.setItem(STORAGE.GAS_URL,gas.replace(/\/+$/,''));
+    history.replaceState({},'',location.pathname);
+  }
+  loadBootstrap(true);
+})();
 </script>
 </body>
 </html>
