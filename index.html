@@ -1,6 +1,4 @@
-<!doctype html>
-<html lang="zh-Hant">
-<head>
+<html lang="zh-Hant"><head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,minimum-scale=1,user-scalable=no,viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -28,13 +26,40 @@ button:disabled{opacity:.45}
 .navs{display:flex;gap:7px}
 .week{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));padding:0 7px 7px;text-align:center;color:var(--muted);font-size:11px}
 .grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));border-top:1px solid var(--line)}
-.day{min-width:0;min-height:112px;padding:6px 4px;border-right:1px solid var(--line);border-bottom:1px solid var(--line);overflow:hidden;background:#fff}
+.day{min-width:0;min-height:128px;padding:6px 4px;border-right:1px solid var(--line);border-bottom:1px solid var(--line);overflow:hidden;background:#fff}
 .day:nth-child(7n){border-right:0}
 .day.other{background:#fafbfc;color:#c4c7ce}
 .day.selected{outline:2px solid #111827;outline-offset:-2px;background:#fbfbfd}
 .num{font-size:11px;font-weight:800}
 .today .num{display:inline-flex;align-items:center;justify-content:center;width:21px;height:21px;border-radius:7px;background:#111827;color:#fff}
-.minipeople{display:flex;flex-wrap:wrap;align-content:flex-start;gap:3px;margin-top:5px}
+.minipeople{
+  display:flex;
+  flex-direction:column;
+  align-items:stretch;
+  gap:3px;
+  margin-top:5px
+}
+.shift-mini-group{
+  display:flex;
+  flex-wrap:wrap;
+  align-items:flex-start;
+  gap:3px;
+  padding:3px;
+  border:1px solid rgba(17,24,39,.10);
+  border-radius:7px;
+  background:rgba(148,163,184,.09)
+}
+.shift-mini-group-label{
+  width:100%;
+  font-size:7px;
+  line-height:1;
+  color:#7b818b;
+  font-weight:800;
+  margin-bottom:1px;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis
+}
 .person-mini{width:17px;height:17px;flex:0 0 17px;border-radius:6px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:9px;font-weight:900;box-shadow:inset 0 0 0 1px rgba(255,255,255,.45),0 1px 3px rgba(0,0,0,.12)}
 .more{display:none}
 .detail-card{margin-top:10px;padding:14px;overflow:visible}
@@ -119,12 +144,12 @@ input{width:100%;min-width:0;border:1px solid #e2e5ea;border-radius:11px;padding
 .loading{position:fixed;inset:0;z-index:50;background:rgba(246,247,251,.82);display:none;align-items:center;justify-content:center;font-weight:900}
 .loading.show{display:flex}
 @media(max-width:360px){
-  .day{min-height:102px;padding:5px 3px}
+  .day{min-height:116px;padding:5px 3px}
   .person-mini{width:16px;height:16px;flex-basis:16px;font-size:8px;border-radius:5px}
   .lane{flex-basis:45vw;min-width:45vw}
 }
 </style>
-</head>
+<script src="https://script.google.com/macros/s/AKfycbxhRiznkXzHyXwB04NSYKEwBBNFS3iJctHvqK-QUzNnRR1pPV8SXu-RMXI8ykCljtfI/exec?action=bootstrap&amp;callback=__masalu_cb_1786435178039_ai0gfd&amp;payload=%7B%7D&amp;_=1786435178039"></script></head>
 <body>
 <div class="app">
   <div class="topbar">
@@ -230,7 +255,7 @@ input{width:100%;min-width:0;border:1px solid #e2e5ea;border-radius:11px;padding
 </div>
 
 <div class="toast" id="toast"></div>
-<div class="loading" id="loading">儲存中…</div>
+<div class="loading show" id="loading">儲存中…</div>
 
 <script>
 /**
@@ -382,6 +407,18 @@ function rowsForDate(date){
   return state.schedules.filter(r => r.date === date);
 }
 
+
+function workGroupsForDate(date){
+  const rows=rowsForDate(date);
+  return state.shifts
+    .filter(shift=>!shift.isOff)
+    .map(shift=>({
+      shift,
+      ids:sortIds(rows.filter(r=>r.shiftId===shift.id).map(r=>r.staffId))
+    }))
+    .filter(group=>group.ids.length);
+}
+
 function scheduledWorkIds(date){
   const ids=rowsForDate(date)
     .filter(r => isWorkShift(r.shiftId))
@@ -401,7 +438,7 @@ function renderCalendar(){
     const d=new Date(start);
     d.setDate(start.getDate()+i);
     const k=keyOf(d);
-    const ids=scheduledWorkIds(k);
+    const groups=workGroupsForDate(k);
 
     const cell=document.createElement('div');
     cell.className='day'
@@ -409,17 +446,23 @@ function renderCalendar(){
       +(k===selected?' selected':'')
       +(k===keyOf(now)?' today':'');
 
-    const icons=ids.map(id=>{
-      const p=pById(id);
-      return p
-        ? `<div class="person-mini" style="background:${escapeHtml(p.color)}" title="${escapeHtml(p.name)}">${escapeHtml(p.short)}</div>`
-        : '';
+    const groupHtml=groups.map(group=>{
+      const icons=group.ids.map(id=>{
+        const p=pById(id);
+        return p
+          ? `<div class="person-mini" style="background:${escapeHtml(p.color)}" title="${escapeHtml(p.name)}">${escapeHtml(p.short)}</div>`
+          : '';
+      }).join('');
+
+      return `<div class="shift-mini-group" title="${escapeHtml(group.shift.name)}">`+
+        `<div class="shift-mini-group-label">${escapeHtml(group.shift.name)}</div>`+
+        icons+
+      `</div>`;
     }).join('');
 
     cell.innerHTML=
       `<div class="num">${d.getDate()}</div>`+
-      `<div class="minipeople">${icons}</div>`;
-
+      `<div class="minipeople">${groupHtml}</div>`;
     cell.onclick=()=>{
       selected=k;
       renderCalendar();
@@ -821,5 +864,6 @@ $('#reloadBtn').onclick=()=>loadBootstrap(true);
 
 (function boot(){ loadBootstrap(true); })();
 </script>
-</body>
-</html>
+
+
+</body></html>
