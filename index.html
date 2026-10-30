@@ -153,6 +153,19 @@ input{width:100%;min-width:0;border:1px solid #e2e5ea;border-radius:11px;padding
   .person-mini{width:16px;height:16px;flex-basis:16px;font-size:8px;border-radius:5px}
   .lane{flex-basis:45vw;min-width:45vw}
 }
+
+/* Calendar integration: retain the original layout and staff colours. */
+.shift-mini-group{grid-template-columns:minmax(0,1fr)}
+.person-mini{width:auto;height:auto;min-height:22px;min-width:0;flex:auto;padding:3px 2px;font-size:10px;line-height:1.35;text-align:center;overflow-wrap:anywhere}
+.shift-mini-group-label{font-size:9px;line-height:1.3;white-space:normal;overflow-wrap:anywhere}
+#lanes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));overflow:visible;gap:7px}
+.lane{width:auto;min-width:0;max-width:none;flex:initial;padding:7px}
+.lanehead{flex-wrap:wrap}.lanename{white-space:normal;overflow-wrap:anywhere}
+.lane .dragperson{width:100%;padding:5px;flex-wrap:wrap;gap:3px}
+.lane .dragperson span{white-space:normal;overflow-wrap:anywhere}
+.day[role=button]{cursor:pointer}.day:focus-visible{outline:3px solid #2563eb;outline-offset:-3px}
+@media(max-width:360px){.person-mini{width:auto;height:auto;flex-basis:auto;font-size:9px}.lane{min-width:0;flex-basis:auto}}
+
 </style></head>
 <body>
 <div class="app">
@@ -201,7 +214,7 @@ input{width:100%;min-width:0;border:1px solid #e2e5ea;border-radius:11px;padding
     <div class="sheethead">
       <div>
         <div class="sheettitle" id="sheetTitle">編輯排班</div>
-        <div class="help">拖曳人員到左右班別；設定可新增／修改班別與人員。</div>
+        <div class="help">拖曳人員到班別；班別每排三個，設定可管理班別與人員。</div>
       </div>
       <button class="close" id="closeBtn">×</button>
     </div>
@@ -267,20 +280,23 @@ input{width:100%;min-width:0;border:1px solid #e2e5ea;border-radius:11px;padding
  * GAS Web App URL 固定於前端；人員、班別、排班全部由 GAS / Google Sheet 載入。
  * 目前依需求暫不啟用管理密碼。
  */
-const GAS_URL = 'https://script.google.com/macros/s/AKfycby6RKpYPoQGyV6dp6Nw1lwDaT634uddhro65nmorws19MmDx0kX_NQbee4ThQPcEAag/exec';
+const GAS_URL = 'https://script.google.com/macros/s/AKfycbxhRiznkXzHyXwB04NSYKEwBBNFS3iJctHvqK-QUzNnRR1pPV8SXu-RMXI8ykCljtfI/exec';
 
 const state = {
   staff: [],
   shifts: [],
   schedules: [],
   settings: {},
+  revision: null,
   draft: null
 };
 
 const now = new Date();
 let viewYear = now.getFullYear();
 let viewMonth = now.getMonth();
-let selected = keyOf(now);
+const initialDate = window.MASALU_INITIAL_DATE || new URLSearchParams(location.search).get('date');
+let selected = /^\d{4}-\d{2}-\d{2}$/.test(initialDate || '') ? initialDate : keyOf(now);
+if(initialDate && selected === initialDate){ const d=dateFromKey(selected); viewYear=d.getFullYear(); viewMonth=d.getMonth(); }
 let touchState = null;
 
 const $ = s => document.querySelector(s);
@@ -324,7 +340,44 @@ function getGasUrl(){ return GAS_URL; }
  * JSONP API：
  * 可直接從 GitHub Pages 呼叫 GAS，不依賴 fetch CORS。
  */
+// Set to the existing Worker origin + /calendar-api after deployment.
+const CALENDAR_API_URL = 'https://leader-shift-line-webhook.edn869728.workers.dev/calendar-api';
+let adminKey = '';
+let calendarApiUrl = CALENDAR_API_URL;
+async function calendarMutation(action,payload){
+  if(!calendarApiUrl){
+    const input=prompt('請輸入既有 Cloudflare Worker 網址（https://名稱.workers.dev）');
+    if(!input) throw new Error('已取消管理操作');
+    let url;
+    try{url=new URL(input);}catch(_){throw new Error('Worker 網址格式不正確');}
+    if(url.protocol!=='https:' || url.username || url.password) throw new Error('請使用自己的 HTTPS Worker 網址');
+    calendarApiUrl=url.origin+'/calendar-api';
+  }
+  if(!adminKey){
+    adminKey=prompt('請輸入管理金鑰（由 GAS 專案管理者設定）') || '';
+    if(!adminKey) throw new Error('已取消管理操作');
+  }
+  const controller=new AbortController();
+  const timer=setTimeout(()=>controller.abort(),30000);
+  try{
+    const response=await fetch(calendarApiUrl,{
+      method:'POST',redirect:'error',signal:controller.signal,
+      headers:{'content-type':'application/json','authorization':'Bearer '+adminKey},
+      body:JSON.stringify({action,payload:{...payload,expectedRevision:state.revision}})
+    });
+    const res=await response.json();
+    if(!response.ok || !res?.ok){
+      if(res?.code==='unauthorized')adminKey='';
+      throw new Error(res?.error || '管理接口連線失敗');
+    }
+    return res;
+  }catch(err){
+    if(err.name==='AbortError')throw new Error('儲存回應逾時，請重新整理確認結果後再操作');
+    throw err;
+  }finally{clearTimeout(timer);}
+}
 function gasCall(action, payload = {}, timeoutMs = 15000){
+  if(action !== 'bootstrap')return calendarMutation(action,payload);
   const gasUrl = getGasUrl();
   if(!gasUrl) return Promise.reject(new Error('尚未設定 GAS API 網址'));
 
@@ -383,6 +436,7 @@ async function loadBootstrap(showLoading=true){
     state.shifts=Array.isArray(res.shifts)?res.shifts:[];
     state.schedules=Array.isArray(res.schedules)?res.schedules:[];
     state.settings=res.settings||{};
+    state.revision=res.revision || null;
 
     $('#appName').textContent=state.settings.app_name || 'MASALU';
     $('#statusText').textContent=`已同步 · DB ${res.databaseId || ''} · ${res.serverTime || ''}`;
@@ -455,7 +509,7 @@ function renderCalendar(){
       const icons=group.ids.map(id=>{
         const p=pById(id);
         return p
-          ? `<div class="person-mini" style="background:${escapeHtml(p.color)}" title="${escapeHtml(p.name)}">${escapeHtml(p.short)}</div>`
+          ? `<div class="person-mini" style="background:${escapeHtml(p.color)}" title="${escapeHtml(p.name)}">${escapeHtml(p.name)}</div>`
           : '';
       }).join('');
 
@@ -468,6 +522,11 @@ function renderCalendar(){
     cell.innerHTML=
       `<div class="num">${d.getDate()}</div>`+
       `<div class="minipeople">${groupHtml}</div>`;
+    cell.setAttribute('role','button');
+    cell.tabIndex=0;
+    cell.setAttribute('aria-label',`${k}，${groups.reduce((n,g)=>n+g.ids.length,0)} 人次排班`);
+    cell.setAttribute('aria-pressed',String(k===selected));
+    cell.onkeydown=e=>{ if(e.key==='Enter' || e.key===' '){e.preventDefault();cell.click();} };
     cell.onclick=()=>{
       selected=k;
       renderCalendar();
@@ -801,6 +860,7 @@ $('#saveBtn').onclick=async()=>{
       assignments
     });
 
+    state.revision=res.revision || state.revision;
     replaceDaySchedules(selected,res.schedules||[]);
     renderCalendar();
     renderDetail();
@@ -823,6 +883,7 @@ $('#confirmClear').onclick=async()=>{
       date:selected
     });
 
+    state.revision=res.revision || state.revision;
     replaceDaySchedules(selected,res.schedules||[]);
     state.draft=makeDraft();
     $('#clearConfirm').classList.remove('show');
@@ -867,7 +928,7 @@ $('#todayBtn').onclick=()=>{
 
 $('#reloadBtn').onclick=()=>loadBootstrap(true);
 
-(function boot(){ loadBootstrap(true); })();
+(function boot(){ renderCalendar(); renderDetail(); loadBootstrap(true); })();
 </script>
 
 
