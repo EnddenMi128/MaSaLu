@@ -278,9 +278,9 @@ input{width:100%;min-width:0;border:1px solid #e2e5ea;border-radius:11px;padding
 /**
  * HTML 不含 staff / shifts / schedules。
  * GAS Web App URL 固定於前端；人員、班別、排班全部由 GAS / Google Sheet 載入。
- * 目前依需求暫不啟用管理密碼。
+ * 管理操作經 Worker 轉送，並由 GAS 驗證管理金鑰。
  */
-const GAS_URL = 'https://script.google.com/macros/s/AKfycbxhRiznkXzHyXwB04NSYKEwBBNFS3iJctHvqK-QUzNnRR1pPV8SXu-RMXI8ykCljtfI/exec';
+const GAS_URL = 'https://script.google.com/macros/s/AKfycby6RKpYPoQGyV6dp6Nw1lwDaT634uddhro65nmorws19MmDx0kX_NQbee4ThQPcEAag/exec';
 
 const state = {
   staff: [],
