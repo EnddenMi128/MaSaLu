@@ -318,12 +318,12 @@ function isWorkShift(id){
   return !!s && !s.isOff;
 }
 function setLoading(v){ $('#loading').classList.toggle('show', !!v); }
-function toast(text){
+function toast(text, duration=3500){
   const el=$('#toast');
   el.textContent=text;
   el.style.display='block';
   clearTimeout(el._timer);
-  el._timer=setTimeout(()=>el.style.display='none',1500);
+  el._timer=setTimeout(()=>el.style.display='none',duration);
 }
 function escapeHtml(s){
   return String(s ?? '')
@@ -358,7 +358,8 @@ async function calendarMutation(action,payload){
     if(!adminKey) throw new Error('已取消管理操作');
   }
   const controller=new AbortController();
-  const timer=setTimeout(()=>controller.abort(),30000);
+  // The server also sends LINE notifications after committing the schedule.
+  const timer=setTimeout(()=>controller.abort(),90000);
   try{
     const response=await fetch(calendarApiUrl,{
       method:'POST',redirect:'error',signal:controller.signal,
@@ -368,7 +369,11 @@ async function calendarMutation(action,payload){
     const res=await response.json();
     if(!response.ok || !res?.ok){
       if(res?.code==='unauthorized')adminKey='';
-      throw new Error(res?.error || '管理接口連線失敗');
+      throw new Error(res?.error || res?.message || '管理接口連線失敗');
+    }
+    if(['saveDay','clearDay'].includes(action) &&
+       (!Array.isArray(res.schedules) || typeof res.revision!=='string')) {
+      throw new Error('伺服器未回傳可驗證的排班資料，請重新整理確認，勿重複送出');
     }
     return res;
   }catch(err){
@@ -427,7 +432,7 @@ function gasCall(action, payload = {}, timeoutMs = 15000){
   });
 }
 
-async function loadBootstrap(showLoading=true){
+async function loadBootstrap(showLoading=true, throwOnError=false){
   if(showLoading)setLoading(true);
 
   try{
@@ -443,11 +448,14 @@ async function loadBootstrap(showLoading=true){
 
     renderCalendar();
     renderDetail();
+    return true;
 
   }catch(err){
     $('#statusText').textContent='連線失敗';
     $('#detailBody').innerHTML=`<div class="empty">${escapeHtml(err.message)}</div>`;
     toast(err.message);
+    if(throwOnError)throw err;
+    return false;
   }finally{
     if(showLoading)setLoading(false);
   }
@@ -463,6 +471,20 @@ function replaceDaySchedules(date, newRows){
 
 function rowsForDate(date){
   return state.schedules.filter(r => r.date === date);
+}
+
+function assignmentsMatch(date, actualRows, assignments){
+  const expected=[];
+  Object.entries(assignments).forEach(([shiftId,ids])=>
+    ids.forEach(staffId=>expected.push(shiftId+'|'+staffId)));
+  const actual=actualRows.filter(r=>r.date===date).map(r=>r.shiftId+'|'+r.staffId);
+  return expected.length===actual.length &&
+    JSON.stringify(expected.sort())===JSON.stringify(actual.sort());
+}
+
+function notificationMessage(summary){
+  if(!summary || !Array.isArray(summary.details))return '排班已儲存，但 LINE 通知結果未提供，請檢查通知狀態';
+  return `排班已儲存｜LINE 已發送 ${summary.sent||0}、失敗 ${summary.failed||0}、未送 ${summary.skipped||0}`;
 }
 
 
@@ -853,21 +875,33 @@ $('#saveBtn').onclick=async()=>{
     assignments[s.id]=sortIds(state.draft[s.id]||[]);
   });
 
+  const date=selected;
+  let writeAccepted=false;
   setLoading(true);
   try{
     const res=await gasCall('saveDay',{
-      date:selected,
+      date,
       assignments
     });
-
+    writeAccepted=true;
+    if(!assignmentsMatch(date,res.schedules,assignments))
+      throw new Error('伺服器回傳的排班人數不符，請先重新整理查核');
     state.revision=res.revision || state.revision;
-    replaceDaySchedules(selected,res.schedules||[]);
-    renderCalendar();
-    renderDetail();
+    replaceDaySchedules(date,res.schedules);
+    await loadBootstrap(false,true);
+    if(!assignmentsMatch(date,rowsForDate(date),assignments))
+      throw new Error('儲存後重新讀取的排班不一致，請檢查試算表資料');
     $('#sheetwrap').classList.remove('show');
-    toast('已儲存');
+    const message=notificationMessage(res.notifications);
+    toast(message,6500);
+    if(!res.notifications || res.notifications.failed || res.notifications.skipped){
+      const details=(res.notifications?.details||[])
+        .filter(item=>item.status!=='sent')
+        .map(item=>item.message).join('\n');
+      alert(message+(details?'\n\n'+details:''));
+    }
   }catch(err){
-    toast(err.message);
+    toast((writeAccepted?'排班已送出，但驗證未完成：':'儲存失敗：')+err.message,6500);
   }finally{
     setLoading(false);
   }
@@ -879,12 +913,16 @@ $('#cancelClear').onclick=()=>$('#clearConfirm').classList.remove('show');
 $('#confirmClear').onclick=async()=>{
   setLoading(true);
   try{
+    const date=selected;
     const res=await gasCall('clearDay',{
-      date:selected
+      date
     });
 
     state.revision=res.revision || state.revision;
-    replaceDaySchedules(selected,res.schedules||[]);
+    if(res.schedules.length)throw new Error('清空後伺服器仍有排班，請查核');
+    replaceDaySchedules(date,res.schedules);
+    await loadBootstrap(false,true);
+    if(rowsForDate(date).length)throw new Error('重新讀取後仍有排班，請查核');
     state.draft=makeDraft();
     $('#clearConfirm').classList.remove('show');
     renderEditor();
