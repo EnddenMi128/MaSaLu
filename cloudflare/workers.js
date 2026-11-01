@@ -43,7 +43,7 @@ export default {
   }
 };
 
-/** GitHub browser writes use a separate route; LINE signature handling is unchanged. */
+/** LIFF calendar requests use a verified LINE access token; webhook handling is unchanged. */
 export async function handleCalendarApi(request, env) {
   const allowedOrigin = env.CALENDAR_ALLOWED_ORIGIN || 'https://enddenmi128.github.io';
   if (request.headers.get('origin') !== allowedOrigin) {
@@ -61,19 +61,20 @@ export async function handleCalendarApi(request, env) {
   if (request.method !== 'POST') return json({ok:false,error:'Method not allowed'},405);
   if (!env.GAS_SHARED_SECRET || !env.GAS_WEB_APP_URL) return json({ok:false,error:'Worker 尚未設定 GAS 連線'},503);
   const auth = request.headers.get('authorization') || '';
-  if (!auth.startsWith('Bearer ') || auth.length < 11 || auth.length > 2055) return json({ok:false,code:'unauthorized',error:'請輸入管理金鑰'},401);
+  const tokenMatch = /^Bearer\s+([^\s]+)$/i.exec(auth);
+  if (!tokenMatch || tokenMatch[1].length > 4096) return json({ok:false,code:'unauthorized',error:'請透過 LINE 登入排班月曆'},401);
   let input;
   try {
     const body=await request.text();
     if(body.length>100000) return json({ok:false,error:'排班內容過大'},413);
     input=JSON.parse(body);
   } catch { return json({ok:false,error:'Invalid JSON'},400); }
-  const actions=['saveDay','clearDay','addStaff','deleteStaff','addShift','updateShift','deleteShift'];
+  const actions=['bootstrap','managerSession','saveDay','clearDay','addStaff','deleteStaff','addShift','updateShift','deleteShift'];
   if(!input || !actions.includes(input.action) || !input.payload || typeof input.payload!=='object' || Array.isArray(input.payload)) return json({ok:false,error:'不支援的操作'},400);
   try {
     const response=await fetch(env.GAS_WEB_APP_URL,{
       method:'POST',headers:{'content-type':'application/json; charset=UTF-8'},redirect:'follow',
-      body:JSON.stringify({kind:'calendar_api',action:input.action,payload:input.payload,adminKey:auth.slice(7),secret:env.GAS_SHARED_SECRET})
+      body:JSON.stringify({kind:'calendar_api',action:input.action,payload:input.payload,lineAccessToken:tokenMatch[1],secret:env.GAS_SHARED_SECRET})
     });
     if(!response.ok) throw new Error('GAS upstream failed');
     const result=await response.json();
@@ -169,3 +170,4 @@ async function replyLine(replyToken, text, env) {
   });
   if (!response.ok) throw new Error('LINE reply HTTP ' + response.status);
 }
+

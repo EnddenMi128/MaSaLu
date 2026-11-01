@@ -198,7 +198,6 @@ function sendShiftRow_(rowNumber, force) {
     const sheet = shiftSheet_();
     const current = sheet.getRange(rowNumber, 1, 1, SHIFT_APP.SHIFT_HEADERS.length).getValues()[0];
     const display = sheet.getRange(rowNumber, 1, 1, SHIFT_APP.SHIFT_HEADERS.length).getDisplayValues()[0];
-    if (typeof masaluCancelled_ === 'function' && masaluCancelled_(current)) return {code:'skipped',message:'此班次已取消，不可重新發送舊通知'};
     if (!force && current[9] === '已發送') return {code: 'skipped', message: '第 ' + rowNumber + ' 列已發送；如需再通知請使用「重新發送」。'};
     if (!force && ['同意', '不同意'].includes(String(current[7]))) return {code: 'skipped', message: '第 ' + rowNumber + ' 列已有回覆；如需重發請使用「重新發送」。'};
     const info = shiftInfo_(display);
@@ -323,21 +322,19 @@ function doPost(e) {
     } else if (input.kind === 'bind_or_message') {
       result = handleLineText_(input);
     } else if (input.kind === 'calendar_api') {
-      // Worker has already verified GAS_SHARED_SECRET.  The calendar adapter
-      // verifies LINE-bound A01-A03 (or legacy key), and expectedRevision.
-      result = masaluApi(String(input.action || ''), input.payload || {}, input.adminKey, input.lineAccessToken);
-      if (result.ok && ['saveDay','clearDay'].includes(input.action)) {
+      // Worker has already verified GAS_SHARED_SECRET. The calendar adapter
+      // independently verifies the LINE access token and A01-A03 management role.
+      result = masaluApi(String(input.action || ''), input.payload || {}, input.lineAccessToken);
+      if (result.ok && input.action === 'saveDay') {
         try {
-          result.cancellationNotifications = masaluNotifyCancelledForDate_(input.payload.date);
-          result.notifications = input.action === 'saveDay' ? masaluNotifyUnsentForDate_(input.payload.date) : {sent:0,failed:0,skipped:0,details:[]};
+          result.notifications = masaluNotifyUnsentForDate_(input.payload.date);
         } catch (notifyError) {
           result.notifications = {sent:0,failed:1,skipped:0,
             details:[{status:'failed',message:'排班已儲存，但通知流程失敗：'+String(notifyError.message)}]};
         }
         // Sending changes notification status/version in the sheet. The
         // optimistic revision must describe the FINAL persisted state.
-        const viewer=masaluViewer_(input.lineAccessToken || input.adminKey);
-        const fresh = masaluBootstrap_(null,viewer || undefined);
+        const fresh = masaluBootstrap_();
         result.revision = fresh.revision;
         result.schedules = fresh.schedules.filter(row => row.date === input.payload.date);
       }
@@ -385,49 +382,6 @@ function masaluNotifyUnsentForDate_(dateValue) {
   return summary;
 }
 
-/** Deliver cancellation only to the employee whose previously sent shift changed. */
-function masaluNotifyCancelledForDate_(dateValue) {
-  const date=masaluDate_(dateValue);
-  if(!date) throw new Error('取消通知日期格式錯誤');
-  const sheet=shiftSheet_();
-  const last=sheet.getLastRow();
-  const rows=last<2 ? [] : sheet.getRange(2,1,last-1,SHIFT_APP.SHIFT_HEADERS.length).getValues();
-  const roster=employeeIndex_();
-  const token=PropertiesService.getScriptProperties().getProperty('LINE_CHANNEL_ACCESS_TOKEN');
-  const summary={sent:0,failed:0,skipped:0,details:[]};
-  rows.forEach((r,index)=>{
-    if(masaluDate_(r[3])!==date || !['已取消','已取消通知失敗'].includes(String(r[9]||'')))return;
-    if(summary.sent+summary.failed>=SHIFT_APP.BATCH_LIMIT){summary.skipped++;return;}
-    const rowNumber=index+2;
-    const staffId=String(r[2]||'');
-    const person=roster[staffId];
-    sheet.getRange(rowNumber,10).setValue('取消通知中');
-    SpreadsheetApp.flush();
-    try{
-      if(!token || !person || !validLineUid_(person.uid))throw new Error('員工未綁定 LINE 或缺少發送設定');
-      const message='【排班取消通知】\n'+person.name+' 您好：\n日期：'+date+'\n班別：'+String(r[6]||'')+'\n此班次已取消或調整，請以最新排班為準。';
-      const http=UrlFetchApp.fetch('https://api.line.me/v2/bot/message/push',{
-        method:'post',contentType:'application/json; charset=UTF-8',
-        headers:{Authorization:'Bearer '+token},
-        payload:JSON.stringify({to:person.uid,messages:[{type:'text',text:message}]}),
-        muteHttpExceptions:true
-      });
-      if(http.getResponseCode()<200 || http.getResponseCode()>=300)throw new Error('LINE HTTP '+http.getResponseCode());
-      sheet.getRange(rowNumber,10).setValue('已取消已通知');
-      safeLog_('取消通知',String(r[1]||''),staffId,'成功',date,'');
-      summary.sent++;
-      summary.details.push({row:rowNumber,status:'sent'});
-    }catch(err){
-      sheet.getRange(rowNumber,10).setValue('已取消通知失敗');
-      sheet.getRange(rowNumber,16).setValue(String(err.message).slice(0,450));
-      safeLog_('取消通知',String(r[1]||''),staffId,'失敗',String(err.message).slice(0,200),'');
-      summary.failed++;
-      summary.details.push({row:rowNumber,status:'failed',message:String(err.message)});
-    }
-  });
-  return summary;
-}
-
 function handleShiftReply_(input) {
   const uid = String(input.lineUid || '');
   const id = String(input.id || '');
@@ -443,9 +397,6 @@ function handleShiftReply_(input) {
     const rowNumber = findShiftRow_(sheet, id);
     if (!rowNumber) return {ok: true, code: 'missing', message: '找不到這筆排班，請聯絡團長。'};
     const row = sheet.getRange(rowNumber, 1, 1, SHIFT_APP.SHIFT_HEADERS.length).getValues()[0];
-    if (typeof masaluCancelled_ === 'function' && masaluCancelled_(row)) {
-      return {ok:true,code:'cancelled',message:'此班次已取消，舊通知不能再回覆。'};
-    }
     const employeeId = String(row[2] || '').trim();
     let expectedUid;
     if (employeeId) {
@@ -573,3 +524,4 @@ function show_(message) {
   try { SpreadsheetApp.getUi().alert(String(message)); }
   catch (_) { console.log(String(message)); } // 從 Apps Script 編輯器首次執行時可能尚無 UI
 }
+
