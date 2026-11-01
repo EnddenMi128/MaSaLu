@@ -3,6 +3,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,minimum-scale=1,user-scalable=no,viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <title>MASALU 排班月曆</title>
+<script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
 <style>
 :root{
   --bg:#f6f7fb;--card:#fff;--text:#202124;--muted:#8a8f98;--line:#e8eaf0;
@@ -143,7 +144,7 @@ input{width:100%;min-width:0;border:1px solid #e2e5ea;border-radius:11px;padding
 .modal-text{font-size:12px;color:var(--muted);line-height:1.6;margin:6px 0 12px}
 .modal-actions{display:flex;gap:8px;margin-top:10px}
 .modal-actions button{flex:1}
-.toast{position:fixed;z-index:40;left:50%;bottom:calc(78px + env(safe-area-inset-bottom));transform:translateX(-50%);display:none;background:#111827;color:#fff;border-radius:11px;padding:9px 13px;font-size:12px;white-space:nowrap}
+.toast{position:fixed;z-index:40;left:10px;right:10px;bottom:calc(78px + env(safe-area-inset-bottom));display:none;background:#111827;color:#fff;border-radius:11px;padding:11px 14px;font-size:14px;white-space:normal;overflow-wrap:anywhere;line-height:1.5}
 .loading{position:fixed;inset:0;z-index:50;background:rgba(246,247,251,.82);display:none;align-items:center;justify-content:center;font-weight:900}
 .loading.show{display:flex}
 @media(max-width:360px){
@@ -157,6 +158,7 @@ input{width:100%;min-width:0;border:1px solid #e2e5ea;border-radius:11px;padding
 /* Calendar integration: retain the original layout and staff colours. */
 .shift-mini-group{grid-template-columns:minmax(0,1fr)}
 .person-mini{width:auto;height:auto;min-height:22px;min-width:0;flex:auto;padding:3px 2px;font-size:10px;line-height:1.35;text-align:center;overflow-wrap:anywhere}
+.person-mini.pending,.person-chip.pending{background:#9ca3af!important;color:#fff;box-shadow:none}
 .shift-mini-group-label{font-size:9px;line-height:1.3;white-space:normal;overflow-wrap:anywhere}
 #lanes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));overflow:visible;gap:7px}
 .lane{width:auto;min-width:0;max-width:none;flex:initial;padding:7px}
@@ -278,7 +280,7 @@ input{width:100%;min-width:0;border:1px solid #e2e5ea;border-radius:11px;padding
 /**
  * HTML 不含 staff / shifts / schedules。
  * GAS Web App URL 固定於前端；人員、班別、排班全部由 GAS / Google Sheet 載入。
- * 管理操作經 Worker 轉送，並由 GAS 驗證管理金鑰。
+ * 所有讀寫經 Worker，GAS 以已綁定的 LINE 帳號驗證存取權限。
  */
 const GAS_URL = 'https://script.google.com/macros/s/AKfycby6RKpYPoQGyV6dp6Nw1lwDaT634uddhro65nmorws19MmDx0kX_NQbee4ThQPcEAag/exec';
 
@@ -287,6 +289,7 @@ const state = {
   shifts: [],
   schedules: [],
   settings: {},
+  viewer: null,
   revision: null,
   draft: null
 };
@@ -318,12 +321,12 @@ function isWorkShift(id){
   return !!s && !s.isOff;
 }
 function setLoading(v){ $('#loading').classList.toggle('show', !!v); }
-function toast(text, duration=3500){
+function toast(text){
   const el=$('#toast');
   el.textContent=text;
   el.style.display='block';
   clearTimeout(el._timer);
-  el._timer=setTimeout(()=>el.style.display='none',duration);
+  el._timer=setTimeout(()=>el.style.display='none',6500);
 }
 function escapeHtml(s){
   return String(s ?? '')
@@ -336,44 +339,40 @@ function escapeHtml(s){
 
 function getGasUrl(){ return GAS_URL; }
 
-/**
- * JSONP API：
- * 可直接從 GitHub Pages 呼叫 GAS，不依賴 fetch CORS。
- */
-// Set to the existing Worker origin + /calendar-api after deployment.
+/** LIFF access token is verified by GAS; the user's role is never trusted from HTML. */
+const LIFF_ID = '2010020470-VBPZRUQ9Q';
 const CALENDAR_API_URL = 'https://leader-shift-line-webhook.edn869728.workers.dev/calendar-api';
-let adminKey = '';
-let calendarApiUrl = CALENDAR_API_URL;
+let lineAccessToken = '';
+let liffReady;
+async function ensureLineIdentity(){
+  if(!liffReady){
+    liffReady=(async()=>{
+      if(!window.liff)throw new Error('無法載入 LINE 身分辨識元件，請確認網路後重新整理');
+      await liff.init({liffId:LIFF_ID});
+      if(!liff.isLoggedIn()){
+        liff.login({redirectUri:location.href});
+        throw new Error('正在跳轉 LINE 登入，請稍候');
+      }
+      lineAccessToken=liff.getAccessToken()||'';
+      if(!lineAccessToken)throw new Error('LINE 登入已過期，請關閉後重新開啟');
+    })();
+  }
+  await liffReady;
+  return lineAccessToken;
+}
 async function calendarMutation(action,payload){
-  if(!calendarApiUrl){
-    const input=prompt('請輸入既有 Cloudflare Worker 網址（https://名稱.workers.dev）');
-    if(!input) throw new Error('已取消管理操作');
-    let url;
-    try{url=new URL(input);}catch(_){throw new Error('Worker 網址格式不正確');}
-    if(url.protocol!=='https:' || url.username || url.password) throw new Error('請使用自己的 HTTPS Worker 網址');
-    calendarApiUrl=url.origin+'/calendar-api';
-  }
-  if(!adminKey){
-    adminKey=prompt('請輸入管理金鑰（由 GAS 專案管理者設定）') || '';
-    if(!adminKey) throw new Error('已取消管理操作');
-  }
+  const token=await ensureLineIdentity();
   const controller=new AbortController();
-  // The server also sends LINE notifications after committing the schedule.
-  const timer=setTimeout(()=>controller.abort(),90000);
+  const timer=setTimeout(()=>controller.abort(),30000);
   try{
-    const response=await fetch(calendarApiUrl,{
+    const response=await fetch(CALENDAR_API_URL,{
       method:'POST',redirect:'error',signal:controller.signal,
-      headers:{'content-type':'application/json','authorization':'Bearer '+adminKey},
-      body:JSON.stringify({action,payload:{...payload,expectedRevision:state.revision}})
+      headers:{'content-type':'application/json','authorization':'Bearer '+token},
+      body:JSON.stringify({action,lineAccessToken:token,payload:{...payload,expectedRevision:state.revision}})
     });
     const res=await response.json();
     if(!response.ok || !res?.ok){
-      if(res?.code==='unauthorized')adminKey='';
-      throw new Error(res?.error || res?.message || '管理接口連線失敗');
-    }
-    if(['saveDay','clearDay'].includes(action) &&
-       (!Array.isArray(res.schedules) || typeof res.revision!=='string')) {
-      throw new Error('伺服器未回傳可驗證的排班資料，請重新整理確認，勿重複送出');
+      throw new Error(res?.error || res?.message || 'LINE 身分驗證或 Worker 連線失敗，請重新開啟 LIFF');
     }
     return res;
   }catch(err){
@@ -382,57 +381,10 @@ async function calendarMutation(action,payload){
   }finally{clearTimeout(timer);}
 }
 function gasCall(action, payload = {}, timeoutMs = 15000){
-  if(action !== 'bootstrap')return calendarMutation(action,payload);
-  const gasUrl = getGasUrl();
-  if(!gasUrl) return Promise.reject(new Error('尚未設定 GAS API 網址'));
-
-  return new Promise((resolve,reject)=>{
-    const cb='__masalu_cb_'+Date.now()+'_'+Math.random().toString(36).slice(2,8);
-    const script=document.createElement('script');
-    let finished=false;
-
-    const cleanup=()=>{
-      try{ delete window[cb]; }catch(_){ window[cb]=undefined; }
-      script.remove();
-    };
-
-    const timer=setTimeout(()=>{
-      if(finished)return;
-      finished=true;
-      cleanup();
-      reject(new Error('GAS 連線逾時'));
-    },timeoutMs);
-
-    window[cb]=(res)=>{
-      if(finished)return;
-      finished=true;
-      clearTimeout(timer);
-      cleanup();
-      if(res && res.ok) resolve(res);
-      else reject(new Error(res && res.error ? res.error : 'GAS 回傳錯誤'));
-    };
-
-    script.onerror=()=>{
-      if(finished)return;
-      finished=true;
-      clearTimeout(timer);
-      cleanup();
-      reject(new Error('無法載入 GAS API，請確認部署網址與公開權限'));
-    };
-
-    const qs=new URLSearchParams({
-      action,
-      callback: cb,
-      payload: JSON.stringify(payload),
-      _: String(Date.now())
-    });
-
-    script.src=gasUrl+'?'+qs.toString();
-    document.head.appendChild(script);
-  });
+  return calendarMutation(action,payload);
 }
 
-async function loadBootstrap(showLoading=true, throwOnError=false){
+async function loadBootstrap(showLoading=true){
   if(showLoading)setLoading(true);
 
   try{
@@ -441,21 +393,24 @@ async function loadBootstrap(showLoading=true, throwOnError=false){
     state.shifts=Array.isArray(res.shifts)?res.shifts:[];
     state.schedules=Array.isArray(res.schedules)?res.schedules:[];
     state.settings=res.settings||{};
+    state.viewer=res.viewer||null;
     state.revision=res.revision || null;
 
+    const manager=Boolean(state.viewer?.manager);
+    $('#editBtn').style.display=manager?'':'none';
+    $('#fab').style.display=manager?'':'none';
+    $('#appName').title=manager?'排班管理員':'個人排班';
+
     $('#appName').textContent=state.settings.app_name || 'MASALU';
-    $('#statusText').textContent=`已同步 · DB ${res.databaseId || ''} · ${res.serverTime || ''}`;
+    $('#statusText').textContent=`${manager?'管理月曆':'個人月曆'} · ${state.viewer?.name||''} · 已同步`;
 
     renderCalendar();
     renderDetail();
-    return true;
 
   }catch(err){
     $('#statusText').textContent='連線失敗';
     $('#detailBody').innerHTML=`<div class="empty">${escapeHtml(err.message)}</div>`;
     toast(err.message);
-    if(throwOnError)throw err;
-    return false;
   }finally{
     if(showLoading)setLoading(false);
   }
@@ -471,20 +426,6 @@ function replaceDaySchedules(date, newRows){
 
 function rowsForDate(date){
   return state.schedules.filter(r => r.date === date);
-}
-
-function assignmentsMatch(date, actualRows, assignments){
-  const expected=[];
-  Object.entries(assignments).forEach(([shiftId,ids])=>
-    ids.forEach(staffId=>expected.push(shiftId+'|'+staffId)));
-  const actual=actualRows.filter(r=>r.date===date).map(r=>r.shiftId+'|'+r.staffId);
-  return expected.length===actual.length &&
-    JSON.stringify(expected.sort())===JSON.stringify(actual.sort());
-}
-
-function notificationMessage(summary){
-  if(!summary || !Array.isArray(summary.details))return '排班已儲存，但 LINE 通知結果未提供，請檢查通知狀態';
-  return `排班已儲存｜LINE 已發送 ${summary.sent||0}、失敗 ${summary.failed||0}、未送 ${summary.skipped||0}`;
 }
 
 
@@ -530,8 +471,10 @@ function renderCalendar(){
     const groupHtml=groups.map(group=>{
       const icons=group.ids.map(id=>{
         const p=pById(id);
+        const row=rowsForDate(k).find(r=>r.staffId===id&&r.shiftId===group.shift.id);
+        const pending=row?.replyStatus!=='同意';
         return p
-          ? `<div class="person-mini" style="background:${escapeHtml(p.color)}" title="${escapeHtml(p.name)}">${escapeHtml(p.name)}</div>`
+          ? `<div class="person-mini${pending?' pending':''}" style="background:${escapeHtml(p.color)}" title="${escapeHtml(p.name)}${pending?'（待回覆）':''}">${escapeHtml(p.name)}</div>`
           : '';
       }).join('');
 
@@ -588,7 +531,9 @@ function renderDetail(){
         ids.map(id=>{
           const p=pById(id);
           if(!p)return '';
-          return `<div class="person-wrap"><div class="person-chip" style="background:${escapeHtml(p.color)}">${escapeHtml(p.short)}<small>${escapeHtml(p.name)}</small></div></div>`;
+          const row=rows.find(r=>r.staffId===id && r.shiftId===shift.id);
+          const pending=row?.replyStatus!=='同意';
+          return `<div class="person-wrap"><div class="person-chip${pending?' pending':''}" style="background:${escapeHtml(p.color)}">${escapeHtml(p.short)}<small>${escapeHtml(p.name)}${pending?' · 待回覆':''}</small></div></div>`;
         }).join('')
       }</div>`;
 
@@ -616,6 +561,7 @@ function makeDraft(){
 }
 
 function openEditor(){
+  if(!state.viewer?.manager){toast('只有 A01–A03 管理員可以編輯排班');return;}
   state.draft=makeDraft();
   const d=dateFromKey(selected);
   $('#sheetTitle').textContent=`${d.getMonth()+1}/${d.getDate()} 編輯排班`;
@@ -784,6 +730,7 @@ function renderSettings(){
 }
 
 async function runMutation(action,payload){
+  if(!state.viewer?.manager){toast('沒有管理權限');return false;}
   setLoading(true);
   try{
     await gasCall(action,{...payload});
@@ -870,38 +817,28 @@ $$('.mode').forEach(btn=>{
 });
 
 $('#saveBtn').onclick=async()=>{
+  if(!state.viewer?.manager)return toast('沒有管理權限');
   const assignments={};
   state.shifts.forEach(s=>{
     assignments[s.id]=sortIds(state.draft[s.id]||[]);
   });
 
-  const date=selected;
-  let writeAccepted=false;
   setLoading(true);
   try{
     const res=await gasCall('saveDay',{
-      date,
+      date:selected,
       assignments
     });
-    writeAccepted=true;
-    if(!assignmentsMatch(date,res.schedules,assignments))
-      throw new Error('伺服器回傳的排班人數不符，請先重新整理查核');
+
     state.revision=res.revision || state.revision;
-    replaceDaySchedules(date,res.schedules);
-    await loadBootstrap(false,true);
-    if(!assignmentsMatch(date,rowsForDate(date),assignments))
-      throw new Error('儲存後重新讀取的排班不一致，請檢查試算表資料');
+    replaceDaySchedules(selected,res.schedules||[]);
+    renderCalendar();
+    renderDetail();
     $('#sheetwrap').classList.remove('show');
-    const message=notificationMessage(res.notifications);
-    toast(message,6500);
-    if(!res.notifications || res.notifications.failed || res.notifications.skipped){
-      const details=(res.notifications?.details||[])
-        .filter(item=>item.status!=='sent')
-        .map(item=>item.message).join('\n');
-      alert(message+(details?'\n\n'+details:''));
-    }
+    const warn=(res.notifications?.failed||0)+(res.cancellationNotifications?.failed||0);
+    toast(warn?'排班已儲存，但有 '+warn+' 筆 LINE 通知失敗，請檢查試算表':'排班已儲存並同步');
   }catch(err){
-    toast((writeAccepted?'排班已送出，但驗證未完成：':'儲存失敗：')+err.message,6500);
+    toast(err.message);
   }finally{
     setLoading(false);
   }
@@ -911,18 +848,15 @@ $('#clearBtn').onclick=()=>$('#clearConfirm').classList.add('show');
 $('#cancelClear').onclick=()=>$('#clearConfirm').classList.remove('show');
 
 $('#confirmClear').onclick=async()=>{
+  if(!state.viewer?.manager)return toast('沒有管理權限');
   setLoading(true);
   try{
-    const date=selected;
     const res=await gasCall('clearDay',{
-      date
+      date:selected
     });
 
     state.revision=res.revision || state.revision;
-    if(res.schedules.length)throw new Error('清空後伺服器仍有排班，請查核');
-    replaceDaySchedules(date,res.schedules);
-    await loadBootstrap(false,true);
-    if(rowsForDate(date).length)throw new Error('重新讀取後仍有排班，請查核');
+    replaceDaySchedules(selected,res.schedules||[]);
     state.draft=makeDraft();
     $('#clearConfirm').classList.remove('show');
     renderEditor();
