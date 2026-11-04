@@ -1,0 +1,133 @@
+name: MaSaLu check and deploy
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "index.html"
+      - "GAS/**"
+      - "cloudflare/**"
+      - ".clasp.json"
+      - "wrangler.jsonc"
+      - "tests/**"
+      - ".github/workflows/masalu-deploy.yml"
+  workflow_dispatch:
+    inputs:
+      deploy:
+        description: "Deploy MSL GAS and Cloudflare Worker to production"
+        type: boolean
+        required: true
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: masalu-production
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Verify source and routes
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: JavaScript syntax
+        run: |
+          node --check cloudflare/workers.js
+          node --check GAS/程式碼.js
+          node --check GAS/CalendarApi.js
+      - name: Manifest and targets
+        run: |
+          node -e 'const fs=require("node:fs");const c=JSON.parse(fs.readFileSync(".clasp.json","utf8"));if(c.scriptId!=="1G9hsWk1qAm0G6fjccAAU1MhOxu2rpW7qytH_owosCzkHiUGRoFVKSCwv"||c.rootDir!=="GAS")process.exit(1);const m=JSON.parse(fs.readFileSync("GAS/appsscript.json","utf8"));if(m.runtimeVersion!=="V8")process.exit(1);'
+          node -e 'const fs=require("node:fs");const c=JSON.parse(fs.readFileSync("wrangler.jsonc","utf8"));if(c.name!=="leader-shift-line-webhook"||c.main!=="cloudflare/workers.js"||c.keep_vars!==true)process.exit(1);'
+      - name: Worker routing tests
+        run: node --test tests/worker-routing.mjs
+
+  preflight:
+    name: Verify production authorization (no writes)
+    needs: verify
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      (
+        (github.event_name == 'push' && vars.MASALU_AUTO_DEPLOY == 'true') ||
+        (github.event_name == 'workflow_dispatch' && inputs.deploy == true)
+      )
+    runs-on: ubuntu-latest
+    env:
+      CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
+      MASALU_GAS_DEPLOYMENT_ID: ${{ secrets.MASALU_GAS_DEPLOYMENT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Require all credentials before any deployment
+        shell: bash
+        run: |
+          for key in CLASPRC_JSON MASALU_GAS_DEPLOYMENT_ID CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID; do
+            if [[ -z "${!key}" ]]; then
+              echo "::error::Missing GitHub Actions secret: $key"
+              exit 1
+            fi
+          done
+          if [[ "${{ vars.MASALU_GAS_SOURCE_CONFIRMED }}" != "true" ]]; then
+            echo "::error::Set repository variable MASALU_GAS_SOURCE_CONFIRMED=true only after confirming GitHub GAS/ contains the complete MSL source."
+            exit 1
+          fi
+      - name: Confirm existing GAS deployment ID
+        shell: bash
+        run: |
+          printf '%s' "$CLASPRC_JSON" > "$RUNNER_TEMP/.clasprc.json"
+          chmod 600 "$RUNNER_TEMP/.clasprc.json"
+          export clasp_config_auth="$RUNNER_TEMP/.clasprc.json"
+          npx --yes @google/clasp@3.4.1 list-deployments > "$RUNNER_TEMP/masalu-deployments.txt"
+          if ! grep -Fq -- "$MASALU_GAS_DEPLOYMENT_ID" "$RUNNER_TEMP/masalu-deployments.txt"; then
+            echo "::error::MSL does not list the configured deployment ID; refusing to overwrite GAS."
+            exit 1
+          fi
+
+  deploy-gas:
+    name: Update existing MSL deployment
+    needs: preflight
+    runs-on: ubuntu-latest
+    env:
+      CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
+      MASALU_GAS_DEPLOYMENT_ID: ${{ secrets.MASALU_GAS_DEPLOYMENT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Authenticate clasp
+        shell: bash
+        run: |
+          printf '%s' "$CLASPRC_JSON" > "$RUNNER_TEMP/.clasprc.json"
+          chmod 600 "$RUNNER_TEMP/.clasprc.json"
+          echo "clasp_config_auth=$RUNNER_TEMP/.clasprc.json" >> "$GITHUB_ENV"
+      - name: Push GitHub source to MSL (never pull from GAS)
+        run: npx --yes @google/clasp@3.4.1 push --force
+      - name: Update the EXISTING Web App URL
+        run: npx --yes @google/clasp@3.4.1 create-deployment --deploymentId "$MASALU_GAS_DEPLOYMENT_ID" --description "GitHub Actions $GITHUB_SHA"
+
+  deploy-worker:
+    name: Update existing LINE Worker
+    needs: deploy-gas
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Deploy Worker and preserve Dashboard variables
+        run: npx --yes wrangler@4 deploy --config wrangler.jsonc --keep-vars
+      - name: Check live health endpoint
+        run: curl --fail --silent --show-error --retry 3 --retry-delay 2 https://leader-shift-line-webhook.edn869728.workers.dev/health
