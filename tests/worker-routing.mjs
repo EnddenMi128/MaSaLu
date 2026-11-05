@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
 const code = await readFile(new URL('../cloudflare/workers.js', import.meta.url), 'utf8');
-const worker = (await import('data:text/javascript;base64,' + Buffer.from(code).toString('base64'))).default;
+const workerModule = await import('data:text/javascript;base64,' + Buffer.from(code).toString('base64'));
+const worker = workerModule.default;
 const origin = 'https://enddenmi128.github.io';
 const env = {
   GAS_SHARED_SECRET: 'test-secret',
@@ -72,3 +73,12 @@ test('health endpoint and webhook signature guard remain intact', async () => {
   }), env);
   assert.equal(webhook.status, 401);
 });
+
+test('employee and manager postback actions stay distinct', () => {
+  const id = '11111111-1111-1111-1111-111111111111';
+  assert.deepEqual(workerModule.parsePostbackData('action=shift_reply&id='+id+'&v=2&choice=agree'), {id,version:2,choice:'agree'});
+  assert.equal(workerModule.parsePostbackData('action=manager_shift&id='+id+'&v=2&decision=skip'), null);
+  assert.deepEqual(workerModule.parseManagerPostbackData('action=manager_shift&id='+id+'&v=2&decision=replace'), {id,version:2,decision:'replace'});
+  assert.equal(workerModule.parseManagerPostbackData('action=manager_shift&id='+id+'&v=2&decision=delete'), null);
+});
+

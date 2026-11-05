@@ -258,7 +258,7 @@ input{width:100%;min-width:0;border:1px solid #e2e5ea;border-radius:11px;padding
       <div id="lanes"></div>
 
       <div class="clear-confirm" id="clearConfirm">
-        確定清空這一天的全部排班？
+        確定清空這一天的全部排班（包含已通知、已回覆的班次）？清空後會通知所有已綁定員工，原排班不能在月曆復原。
         <div class="clear-confirm-actions">
           <button class="smallbtn" id="cancelClear">取消</button>
           <button class="smallbtn danger" id="confirmClear">確定清空</button>
@@ -344,6 +344,8 @@ const LIFF_ID = '2010020470-VBPZRUQ9';
 const CALENDAR_API_URL = 'https://leader-shift-line-webhook.edn869728.workers.dev/calendar-api';
 let lineAccessToken = '';
 let liffReady;
+let activeCacheKey = '';
+const BOOT_CACHE_MS = 90 * 1000;
 async function ensureLineIdentity(){
   if(!liffReady){
     liffReady=(async()=>{
@@ -392,35 +394,57 @@ function gasCall(action, payload = {}, timeoutMs = 15000){
   return calendarMutation(action,payload);
 }
 
+/** Session-only preview: names and manager schedules are never shared across LINE identities. */
+async function bootstrapCacheKey(){
+  const token=await ensureLineIdentity();
+  const digest=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(token));
+  activeCacheKey='masalu:v2:'+Array.from(new Uint8Array(digest)).slice(0,16)
+    .map(n=>n.toString(16).padStart(2,'0')).join('');
+  return activeCacheKey;
+}
+function forgetBootstrapCache(){
+  try{ if(activeCacheKey)sessionStorage.removeItem(activeCacheKey); }catch(_){ /* private mode */ }
+}
+function applyBootstrap(res,cached=false){
+  state.staff=Array.isArray(res.staff)?res.staff:[];
+  state.shifts=Array.isArray(res.shifts)?res.shifts:[];
+  state.schedules=Array.isArray(res.schedules)?res.schedules:[];
+  state.settings=res.settings||{};
+  state.viewer=res.viewer||null;
+  state.revision=res.revision||null;
+  const manager=Boolean(state.viewer?.manager);
+  $('#editBtn').style.display=manager?'inline-flex':'none';
+  $('#fab').style.display=manager?'block':'none';
+  $('#appName').title=manager?'排班管理員':'個人排班';
+  $('#appName').textContent=state.settings.app_name||'MASALU';
+  $('#statusText').textContent=`${manager?'管理月曆':'個人月曆'} · ${state.viewer?.name||''} · ${cached?'快取預覽，正在同步':'已同步'}`;
+  renderCalendar();
+  renderDetail();
+}
 async function loadBootstrap(showLoading=true){
   if(showLoading)setLoading(true);
-
+  let hadCache=false;
   try{
+    const cacheKey=await bootstrapCacheKey();
+    try{
+      const entry=JSON.parse(sessionStorage.getItem(cacheKey)||'null');
+      if(entry?.savedAt && Date.now()-entry.savedAt<BOOT_CACHE_MS && entry.data?.ok && entry.data?.viewer){
+        applyBootstrap(entry.data,true);
+        hadCache=true;
+        setLoading(false);
+      }
+    }catch(_){ /* Storage unavailable or corrupt: request fresh data. */ }
     const res=await gasCall('bootstrap');
-    state.staff=Array.isArray(res.staff)?res.staff:[];
-    state.shifts=Array.isArray(res.shifts)?res.shifts:[];
-    state.schedules=Array.isArray(res.schedules)?res.schedules:[];
-    state.settings=res.settings||{};
-    state.viewer=res.viewer||null;
-    state.revision=res.revision || null;
-
-    const manager=Boolean(state.viewer?.manager);
-    $('#editBtn').style.display=manager?'inline-flex':'none';
-    $('#fab').style.display=manager?'block':'none';
-    $('#appName').title=manager?'排班管理員':'個人排班';
-
-    $('#appName').textContent=state.settings.app_name || 'MASALU';
-    $('#statusText').textContent=`${manager?'管理月曆':'個人月曆'} · ${state.viewer?.name||''} · 已同步`;
-
-    renderCalendar();
-    renderDetail();
-
+    applyBootstrap(res,false);
+    try{sessionStorage.setItem(cacheKey,JSON.stringify({savedAt:Date.now(),data:res}));}catch(_){ /* private mode */ }
   }catch(err){
-    state.viewer=null;
-    $('#editBtn').style.display='none';
-    $('#fab').style.display='none';
-    $('#statusText').textContent='連線失敗';
-    $('#detailBody').innerHTML=`<div class="empty">${escapeHtml(err.message)}</div>`;
+    if(!hadCache){
+      state.viewer=null;
+      $('#editBtn').style.display='none';
+      $('#fab').style.display='none';
+      $('#statusText').textContent='連線失敗';
+      $('#detailBody').innerHTML=`<div class="empty">${escapeHtml(err.message)}</div>`;
+    }else $('#statusText').textContent='快取預覽 · 同步暫時失敗';
     toast(err.message);
   }finally{
     if(showLoading)setLoading(false);
@@ -842,12 +866,16 @@ $('#saveBtn').onclick=async()=>{
     });
 
     state.revision=res.revision || state.revision;
+    forgetBootstrapCache();
     replaceDaySchedules(selected,res.schedules||[]);
     renderCalendar();
     renderDetail();
     $('#sheetwrap').classList.remove('show');
     const warn=(res.notifications?.failed||0)+(res.cancellationNotifications?.failed||0);
-    toast(warn?'排班已儲存，但有 '+warn+' 筆 LINE 通知失敗，請檢查試算表':'排班已儲存並同步');
+    const add=res.notifications?.sent||0,removed=res.cancellationNotifications?.sent||0;
+    const skip=(res.notifications?.skipped||0)+(res.cancellationNotifications?.skipped||0);
+    toast(warn?'排班已儲存；LINE 成功 '+(add+removed)+'、失敗 '+warn+'、未綁定／略過 '+skip+'，請檢查通知紀錄':
+      `排班已儲存，新增通知 ${add} 人、異動通知 ${removed} 人；未重複發送原排班`);
   }catch(err){
     toast(err.message);
   }finally{
@@ -867,13 +895,15 @@ $('#confirmClear').onclick=async()=>{
     });
 
     state.revision=res.revision || state.revision;
+    forgetBootstrapCache();
     replaceDaySchedules(selected,res.schedules||[]);
     state.draft=makeDraft();
     $('#clearConfirm').classList.remove('show');
     renderEditor();
     renderCalendar();
     renderDetail();
-    toast('當天排班已清空');
+    const notifications=res.cancellationNotifications||{};
+    toast(`當天排班已清空；通知成功 ${notifications.sent||0} 人、失敗 ${notifications.failed||0} 人、未綁定 ${notifications.skipped||0} 人`);
   }catch(err){
     toast(err.message);
   }finally{
@@ -916,4 +946,5 @@ $('#reloadBtn').onclick=()=>loadBootstrap(true);
 
 
 </body></html>
+
 

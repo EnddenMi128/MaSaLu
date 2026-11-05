@@ -111,10 +111,25 @@ export function parsePostbackData(data) {
   return {id, version, choice};
 }
 
+export function parseManagerPostbackData(data) {
+  if (typeof data !== 'string' || data.length > 300) return null;
+  const qs = new URLSearchParams(data);
+  const id=qs.get('id'),version=Number(qs.get('v')),decision=qs.get('decision');
+  if (qs.get('action') !== 'manager_shift' ||
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id || '') ||
+      !Number.isSafeInteger(version) || version < 1 || !['skip','replace'].includes(decision)) return null;
+  return {id,version,decision};
+}
+
 async function handleEvent(event, env) {
   if (!event || event.source?.type !== 'user' || !/^U[0-9a-f]{32}$/i.test(event.source.userId || '')) return;
   const lineUid = event.source.userId;
   const eventId = event.webhookEventId || '';
+  if (event.type === 'follow') {
+    await replyLineSafe(event.replyToken,
+      '歡迎使用 MaSaLu 排班小幫手！\n請輸入「綁定 你的12碼綁定碼」完成綁定；系統會立即回覆成功或失敗。\n已綁定者可直接開啟排班月曆。', env);
+    return;
+  }
   if (event.type === 'message' && event.message?.type === 'text') {
     const text = String(event.message.text || '').trim();
     if (text === '我的UID') {
@@ -128,8 +143,10 @@ async function handleEvent(event, env) {
   }
   if (event.type === 'postback') {
     const parsed = parsePostbackData(event.postback?.data);
-    if (!parsed) return;
-    const result = await sendToGas({kind: 'shift_reply', lineUid, eventId, ...parsed}, env);
+    const manager = parsed ? null : parseManagerPostbackData(event.postback?.data);
+    if (!parsed && !manager) return;
+    const kind = parsed ? 'shift_reply' : 'manager_decision';
+    const result = await sendToGas({kind, lineUid, eventId, ...(parsed || manager)}, env);
     await replyLineSafe(event.replyToken, result.message, env);
   }
 }
@@ -170,4 +187,5 @@ async function replyLine(replyToken, text, env) {
   });
   if (!response.ok) throw new Error('LINE reply HTTP ' + response.status);
 }
+
 
