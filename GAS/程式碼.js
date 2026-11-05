@@ -319,18 +319,26 @@ function doPost(e) {
       result = {ok: false, code: 'unauthorized', message: '拒絕存取'};
     } else if (input.kind === 'shift_reply') {
       result = handleShiftReply_(input);
+    } else if (input.kind === 'manager_decision') {
+      result = handleManagerDecision_(input);
     } else if (input.kind === 'bind_or_message') {
       result = handleLineText_(input);
     } else if (input.kind === 'calendar_api') {
       // Worker has already verified GAS_SHARED_SECRET. The calendar adapter
       // independently verifies the LINE access token and A01-A03 management role.
       result = masaluApi(String(input.action || ''), input.payload || {}, input.lineAccessToken);
-      if (result.ok && input.action === 'saveDay') {
+      if (result.ok && (input.action === 'saveDay' || input.action === 'clearDay')) {
         try {
-          result.notifications = masaluNotifyUnsentForDate_(input.payload.date);
+          result.notifications = masaluNotifyAddedForDate_(result.delta);
         } catch (notifyError) {
           result.notifications = {sent:0,failed:1,skipped:0,
             details:[{status:'failed',message:'排班已儲存，但通知流程失敗：'+String(notifyError.message)}]};
+        }
+        try {
+          result.cancellationNotifications = masaluNotifyCancellations_(result.delta);
+        } catch (notifyError) {
+          result.cancellationNotifications = {sent:0,failed:1,skipped:0,
+            details:[{status:'failed',message:'排班已更新，但取消通知失敗：'+String(notifyError.message)}]};
         }
         // Sending changes notification status/version in the sheet. The
         // optimistic revision must describe the FINAL persisted state.
@@ -350,16 +358,17 @@ function doPost(e) {
     .setMimeType(ContentService.MimeType.JSON);
 }
 
-/** Send each newly saved, still-unsent assignment to its bound employee. */
-function masaluNotifyUnsentForDate_(dateValue) {
-  const date = masaluDate_(dateValue);
+/** Send only NEW assignment IDs, never reissue an unchanged unanswered card. */
+function masaluNotifyAddedForDate_(delta) {
+  const date = masaluDate_(delta && delta.date);
   if (!date) throw new Error('通知日期格式錯誤');
+  const addedIds = new Set((delta.addedIds || []).map(String));
   const sheet = shiftSheet_();
   const last = sheet.getLastRow();
   const rows = last < 2 ? [] : sheet.getRange(2, 1, last - 1, SHIFT_APP.SHIFT_HEADERS.length).getValues();
   const candidates = [];
   rows.forEach((row, index) => {
-    if (masaluDate_(row[3]) !== date || !row[2] || !row[6]) return;
+    if (masaluDate_(row[3]) !== date || !row[2] || !row[6] || !addedIds.has(String(row[1]||''))) return;
     const status = String(row[9] || '');
     const reply = String(row[7] || '');
     // Do not duplicate delivered or in-flight messages, or alter replied rows.
@@ -382,6 +391,61 @@ function masaluNotifyUnsentForDate_(dateValue) {
   return summary;
 }
 
+/** A cleared date notifies all bound employees; normal edits notify only removed staff. */
+function masaluNotifyCancellations_(delta) {
+  const summary={sent:0,failed:0,skipped:0,details:[]};
+  if (!delta || !delta.removed || !delta.removed.length) return summary;
+  const roster=employeeIndex_();
+  const token=PropertiesService.getScriptProperties().getProperty('LINE_CHANNEL_ACCESS_TOKEN');
+  if (!token) throw new Error('缺少 LINE_CHANNEL_ACCESS_TOKEN');
+  const targets=new Map();
+  if (delta.clear) {
+    Object.keys(roster).forEach(id=>{
+      const person=roster[id];
+      if(validLineUid_(person.uid)) targets.set(person.uid,{
+        uid:person.uid,id,name:person.name,all:true
+      });
+      else summary.skipped++;
+    });
+  } else {
+    const sheet=shiftSheet_(),last=sheet.getLastRow();
+    const added=new Set();
+    if(last>=2) sheet.getRange(2,1,last-1,SHIFT_APP.SHIFT_HEADERS.length).getValues().forEach(r=>{
+      if((delta.addedIds||[]).includes(String(r[1]||''))) added.add(String(r[2]||''));
+    });
+    delta.removed.forEach(old=>{
+      if(added.has(old.staffId))return; // Changed shift: the replacement card communicates the update.
+      const person=roster[old.staffId],uid=person?.uid||old.uid;
+      if(validLineUid_(uid)) targets.set(uid,{
+        uid,id:old.staffId,name:person?.name||old.name||'員工',shift:old.shift,all:false
+      });
+      else summary.skipped++;
+    });
+  }
+  targets.forEach(person=>{
+    const message=person.all
+      ? '📢 排班異動通知\n'+delta.date+' 的排班已全部清空，目前當日沒有班次。請以最新月曆為準。'
+      : '📢 排班異動通知\n'+person.name+' 您好，'+delta.date+' 的'+(person.shift?'「'+person.shift+'」':'')+'排班已取消。請以最新月曆為準。';
+    try {
+      const response=UrlFetchApp.fetch('https://api.line.me/v2/bot/message/push',{
+        method:'post',contentType:'application/json; charset=UTF-8',
+        headers:{Authorization:'Bearer '+token},
+        payload:JSON.stringify({to:person.uid,messages:[{type:'text',text:message}]}),
+        muteHttpExceptions:true
+      });
+      if(response.getResponseCode()<200||response.getResponseCode()>=300)
+        throw new Error('LINE HTTP '+response.getResponseCode());
+      summary.sent++;
+      safeLog_('取消通知','',person.id,'成功',delta.date,'');
+    } catch(err) {
+      summary.failed++;
+      summary.details.push({status:'failed',id:person.id,message:String(err.message).slice(0,160)});
+      safeLog_('取消通知','',person.id,'失敗',String(err.message).slice(0,160),'');
+    }
+  });
+  return summary;
+}
+
 function handleShiftReply_(input) {
   const uid = String(input.lineUid || '');
   const id = String(input.id || '');
@@ -392,19 +456,15 @@ function handleShiftReply_(input) {
   }
   const lock = LockService.getScriptLock();
   lock.waitLock(20000);
+  let confirmed;
   try {
     const sheet = shiftSheet_();
     const rowNumber = findShiftRow_(sheet, id);
     if (!rowNumber) return {ok: true, code: 'missing', message: '找不到這筆排班，請聯絡團長。'};
     const row = sheet.getRange(rowNumber, 1, 1, SHIFT_APP.SHIFT_HEADERS.length).getValues()[0];
     const employeeId = String(row[2] || '').trim();
-    let expectedUid;
-    if (employeeId) {
-      const employee = employeeIndex_()[employeeId];
-      expectedUid = employee && employee.uid;
-    } else {
-      expectedUid = String(row[13] || '');
-    }
+    const employee = employeeId ? employeeIndex_()[employeeId] : null;
+    const expectedUid = employeeId ? employee && employee.uid : String(row[13] || '');
     if (!expectedUid || expectedUid !== uid) {
       return {ok: true, code: 'wrong_user', message: '此排班通知不是發給這個 LINE 帳號，無法代替別人回覆。'};
     }
@@ -416,11 +476,131 @@ function handleShiftReply_(input) {
     const status = choice === 'agree' ? '同意' : '不同意';
     sheet.getRange(rowNumber, 8, 1, 2).setValues([[status, new Date()]]);
     if (!employeeId) sheet.getRange(rowNumber, 14).clearContent(); // 一次性 UID 不留存
+    SpreadsheetApp.flush();
     safeLog_('員工回覆', id, employeeId, status, employeeId ? '' : '臨時UID已清除', String(input.eventId || ''));
-    return {ok: true, code: 'confirmed', message: '已收到您的排班回覆：【' + status + '】，謝謝！'};
+    confirmed = {
+      id, version, status, date: masaluDate_(row[3]),
+      shift: String(row[6] || ''), employeeId,
+      name: employee ? employee.name : String(row[12] || '臨時人員')
+    };
   } finally {
     lock.releaseLock();
   }
+  // Reply to the employee even if notifying the managers fails. Never repeat a confirmed write.
+  let managerNotice = {sent:0,failed:0};
+  try { managerNotice = masaluNotifyManagers_(confirmed); }
+  catch (err) {
+    console.error('團長通知失敗：' + String(err.message).slice(0, 200));
+    safeLog_('團長通知', id, confirmed.employeeId, '失敗', String(err.message).slice(0, 200), '');
+    managerNotice.failed++;
+  }
+  return {ok: true, code: 'confirmed', message: '已收到您的排班回覆：【' + confirmed.status + '】，謝謝！', managerNotice};
+}
+
+/** Send each confirmed reply to A01–A03. Their LINE UIDs are read from the existing roster. */
+function masaluNotifyManagers_(notice) {
+  const token = PropertiesService.getScriptProperties().getProperty('LINE_CHANNEL_ACCESS_TOKEN');
+  if (!token) throw new Error('缺少 LINE_CHANNEL_ACCESS_TOKEN');
+  const managers = employeeIndex_();
+  const uids = [...new Set(['A01', 'A02', 'A03']
+    .map(id => managers[id] && managers[id].uid)
+    .filter(validLineUid_))];
+  if (!uids.length) throw new Error('A01–A03 尚未綁定可通知的 LINE 帳號');
+  const summary = {sent:0,failed:0};
+  const messages = [masaluManagerReplyMessage_(notice)];
+  if (notice.status === '同意') {
+    const publication = masaluReadyDaySummary_(notice.date);
+    if (publication) messages.push({type:'text',text:publication});
+  }
+  uids.forEach(uid => {
+    try {
+      const result = UrlFetchApp.fetch('https://api.line.me/v2/bot/message/push', {
+        method:'post',contentType:'application/json; charset=UTF-8',
+        headers:{Authorization:'Bearer '+token},
+        payload:JSON.stringify({to:uid,messages}),muteHttpExceptions:true
+      });
+      if (result.getResponseCode() < 200 || result.getResponseCode() >= 300)
+        throw new Error('LINE HTTP '+result.getResponseCode());
+      summary.sent++;
+    } catch (err) {
+      summary.failed++;
+      console.error('團長推播失敗：'+String(err.message).slice(0, 120));
+    }
+  });
+  safeLog_('團長通知', notice.id, notice.employeeId,
+    summary.failed ? '部分失敗' : '成功', '成功 '+summary.sent+'，失敗 '+summary.failed, '');
+  if(messages.length>1 && summary.sent) safeLog_('總表發布',notice.id,notice.employeeId,'完成',notice.date,'');
+  return summary;
+}
+
+function masaluManagerReplyMessage_(notice) {
+  const label = notice.name+' '+(notice.status==='同意'?'已同意':'無法出席')+'排班';
+  if (notice.status === '同意') return {type:'text',text:'✅ '+label+'\n日期：'+notice.date+'\n班別：'+notice.shift};
+  const action = (text, decision, color) => ({
+    type:'button',style:'primary',color,
+    action:{type:'postback',label:text,displayText:text+'：'+notice.name,
+      data:'action=manager_shift&id='+encodeURIComponent(notice.id)+'&v='+notice.version+'&decision='+decision}
+  });
+  return {type:'flex',altText:'⚠️ '+label,
+    contents:{type:'bubble',
+      body:{type:'box',layout:'vertical',spacing:'md',contents:[
+        {type:'text',text:'⚠️ '+label,weight:'bold',wrap:true,size:'lg'},
+        {type:'text',text:'日期：'+notice.date,wrap:true,size:'sm'},
+        {type:'text',text:'班別：'+notice.shift,wrap:true,size:'sm'},
+        {type:'text',text:'原排班會從月曆隱藏，請選擇略過或安排替補。',wrap:true,size:'sm'}
+      ]},
+      footer:{type:'box',layout:'horizontal',spacing:'sm',contents:[
+        action('略過','skip','#64748B'),action('替補','replace','#D96B24')
+      ]}
+    }};
+}
+
+/** Publish an A01–A03-only day summary once all active assignments have agreed. */
+function masaluReadyDaySummary_(date) {
+  if (!date) return '';
+  const sheet = shiftSheet_();
+  const last = sheet.getLastRow();
+  if (last < 2) return '';
+  const rows = sheet.getRange(2, 1, last-1, SHIFT_APP.SHIFT_HEADERS.length).getValues()
+    .filter(r => masaluDate_(r[3]) === date && r[6] && (r[2] || r[12]));
+  if (rows.some(r => String(r[7]||'') === '不同意' && !String(r[16]||'').includes('[管理已略過]'))) return '';
+  const active = rows.filter(r => String(r[7]||'') !== '不同意');
+  if (!active.length || active.some(r => String(r[7]||'') !== '同意')) return '';
+  const roster = employeeIndex_();
+  const details = active.map(r => {
+    const employee = roster[String(r[2]||'').trim()];
+    return '• '+(employee ? employee.name : String(r[12]||'臨時人員'))+'｜'+String(r[6]||'');
+  }).join('\n');
+  return ('📅 '+date+' 總排班已全部確認\n'+details).slice(0, 1800);
+}
+
+/** Actions on decline notifications are allowed only for bound A01–A03 managers. */
+function handleManagerDecision_(input) {
+  const uid=String(input.lineUid||''),id=String(input.id||'');
+  const version=Number(input.version),decision=String(input.decision||'');
+  if (!validLineUid_(uid) || !/^[a-f0-9-]{36}$/i.test(id) ||
+      !Number.isSafeInteger(version) || version<1 || !['skip','replace'].includes(decision))
+    return {ok:true,code:'invalid',message:'管理操作格式不正確。'};
+  const roster=employeeIndex_();
+  if (!['A01','A02','A03'].some(key=>roster[key]&&roster[key].uid===uid))
+    return {ok:true,code:'unauthorized',message:'只有 A01–A03 能處理替補。'};
+  const lock=LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    const sheet=shiftSheet_();
+    const number=findShiftRow_(sheet,id);
+    if (!number) return {ok:true,code:'missing',message:'排班已不存在。'};
+    const row=sheet.getRange(number,1,1,SHIFT_APP.SHIFT_HEADERS.length).getValues()[0];
+    if (Number(row[11])!==version) return {ok:true,code:'expired',message:'通知已失效。'};
+    if (String(row[7]||'')!=='不同意') return {ok:true,code:'expired',message:'這筆排班並非「不同意」狀態。'};
+    const date=masaluDate_(row[3]);
+    if (decision==='replace') return {ok:true,code:'replace',message:'請開啟 MaSaLu 排班管理，選取 '+date+'，將替補員工拖入班別後儲存：\nhttps://liff.line.me/2010020470-VBPZRUQ9?date='+date};
+    const note=String(row[16]||'');
+    if (note.includes('[管理已略過]')) return {ok:true,code:'already',message:'這筆無法出席排班已略過。'};
+    sheet.getRange(number,17).setValue((note ? note+'｜' : '')+'[管理已略過]');
+    safeLog_('無法出席處理',id,String(row[2]||''),'略過',date,String(input.eventId||''));
+    return {ok:true,code:'skipped',message:'已略過 '+date+' 的無法出席排班，原始紀錄保留。'};
+  } finally { lock.releaseLock(); }
 }
 
 function handleLineText_(input) {
@@ -524,4 +704,5 @@ function show_(message) {
   try { SpreadsheetApp.getUi().alert(String(message)); }
   catch (_) { console.log(String(message)); } // 從 Apps Script 編輯器首次執行時可能尚無 UI
 }
+
 
