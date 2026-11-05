@@ -34,8 +34,8 @@ function doGet(e) {
 }
 
 function masaluJson_(value) { return ContentService.createTextOutput(JSON.stringify(value)).setMimeType(ContentService.MimeType.JSON); }
-function masaluTable_(name,headers) {
-  const sheet=openBook_().getSheetByName(name);
+function masaluTable_(name,headers,book) {
+  const sheet=(book||openBook_()).getSheetByName(name);
   if(!sheet) throw new Error('請先執行 setupMaSaLuCalendar：缺少 '+name);
   const data=sheet.getDataRange().getValues();
   if(headers.some((h,i)=>data[0][i]!==h)) throw new Error(name+' 欄位不符，已停止操作');
@@ -52,10 +52,11 @@ function masaluDate_(value) {
   return match[1]+'-'+String(m).padStart(2,'0')+'-'+String(d).padStart(2,'0');
 }
 function masaluLoad_() {
-  const employees=masaluTable_(SHIFT_APP.EMPLOYEES,SHIFT_APP.EMP_HEADERS);
-  const shifts=masaluTable_(MASALU.SHIFTS,MASALU.SHIFT_HEADERS);
-  const display=masaluTable_(MASALU.DISPLAY,MASALU.DISPLAY_HEADERS);
-  const schedule=masaluTable_(SHIFT_APP.SHIFTS,SHIFT_APP.SHIFT_HEADERS);
+  const book=openBook_(); // One spreadsheet handle for the entire bootstrap.
+  const employees=masaluTable_(SHIFT_APP.EMPLOYEES,SHIFT_APP.EMP_HEADERS,book);
+  const shifts=masaluTable_(MASALU.SHIFTS,MASALU.SHIFT_HEADERS,book);
+  const display=masaluTable_(MASALU.DISPLAY,MASALU.DISPLAY_HEADERS,book);
+  const schedule=masaluTable_(SHIFT_APP.SHIFTS,SHIFT_APP.SHIFT_HEADERS,book);
   return {employees,shifts,display,schedule};
 }
 function masaluRevision_(data) {
@@ -78,13 +79,13 @@ function masaluBootstrap_(data) {
   const schedules=[];
   data.schedule.rows.forEach((r,i)=>{
     const date=masaluDate_(r[3]),shift=shifts.find(s=>s.name===String(r[6]||'').trim());
-    if(!date||!shift)return;
+    if(!date||!shift || String(r[7]||'').trim()==='不同意')return;
     let staffId=String(r[2]||'').trim();
     if(!staffId && r[12]) {
       staffId='temporary:'+String(r[1]||i);
       if(!staff.some(p=>p.id===staffId)) staff.push({id:staffId,name:String(r[12]),short:String(r[12])[0],color:'#475569'});
     }
-    if(staff.some(p=>p.id===staffId)) schedules.push({date,shiftId:shift.id,staffId});
+    if(staff.some(p=>p.id===staffId)) schedules.push({date,shiftId:shift.id,staffId,replyStatus:String(r[7]||'待回覆')});
   });
   return {ok:true,staff,shifts,schedules,settings:{app_name:'MASALU'},revision:masaluRevision_(data),serverTime:new Date().toISOString()};
 }
@@ -94,7 +95,14 @@ function masaluApi(action,payload,lineAccessToken) {
   try {
     const viewer=masaluViewer_(lineAccessToken);
     if(!viewer) return {ok:false,code:'unauthorized',error:'找不到此 LINE 帳號的員工綁定，請確認使用同一個 LINE 帳號'};
-    if(action==='bootstrap') return Object.assign(masaluBootstrap_(),{viewer});
+    if(action==='bootstrap') {
+      const data=masaluBootstrap_();
+      if(!viewer.manager) {
+        data.staff=data.staff.filter(p=>p.id===viewer.id);
+        data.schedules=data.schedules.filter(r=>r.staffId===viewer.id);
+      }
+      return Object.assign(data,{viewer});
+    }
     if(action==='managerSession') return viewer.manager ? {ok:true,manager:viewer} : {ok:false,code:'unauthorized',error:'只有 A01–A03 管理員可以編輯排班'};
     if(!viewer.manager) return {ok:false,code:'unauthorized',error:'只有 A01–A03 管理員可以編輯排班'};
     const lock=LockService.getScriptLock();
@@ -102,11 +110,12 @@ function masaluApi(action,payload,lineAccessToken) {
     try {
       const data=masaluLoad_();
       if(!payload || payload.expectedRevision!==masaluRevision_(data)) throw new Error('資料已更新，請重新整理後再操作');
-      if(action==='saveDay'||action==='clearDay') masaluSaveDay_(data,payload,action==='clearDay');
-      else masaluSettings_(data,action,payload);
+      const delta=(action==='saveDay'||action==='clearDay') ? masaluSaveDay_(data,payload,action==='clearDay') : null;
+      if(!delta) masaluSettings_(data,action,payload);
       SpreadsheetApp.flush();
       const result=masaluBootstrap_();
       if(action==='saveDay'||action==='clearDay') result.schedules=result.schedules.filter(r=>r.date===payload.date);
+      if(delta) result.delta=delta;
       result.viewer=viewer;
       return result;
     } finally { lock.releaseLock(); }
@@ -130,26 +139,37 @@ function masaluSaveDay_(data,payload,clear) {
       wanted.add(JSON.stringify([staffId,shift.name]));
     });
   });
-  const removals=[],existing=new Set();
+  const removals=[],existing=new Set(),removed=[];
   data.schedule.rows.forEach((r,i)=>{
     if(masaluDate_(r[3])!==date) return;
     const staffId=String(r[2]||'').trim() || (r[12]?'temporary:'+String(r[1]||i):'');
     const pair=JSON.stringify([staffId,String(r[6]||'').trim()]);
+    if(!clear && String(r[7]||'').trim()==='不同意') {
+      if(wanted.has(pair)) throw new Error('此員工已拒絕當日排班，請另外安排替補人員');
+      return; // Keep the declined row and its history; it no longer appears on the calendar.
+    }
     if(wanted.has(pair)) {existing.add(pair);return;}
-    if(masaluProtected_(r)||!staffId||!r[6]||!r[2]||!bootstrap.staff.some(p=>p.id===staffId)) throw new Error('這天包含已通知、已回覆、臨時或無法辨識的排班，請從試算表處理，原資料未變更');
     removals.push(i+2);
+    removed.push({staffId,shift:String(r[6]||''),uid:String(r[13]||''),name:String(r[12]||''),
+      id:String(r[1]||''),reply:String(r[7]||''),notification:String(r[9]||''),version:Number(r[11])||0});
   });
-  const additions=[];
+  const additions=[],addedIds=[];
   wanted.forEach(pair=>{
     if(existing.has(pair))return;
     const [staffId,name]=JSON.parse(pair);
     if(staffId.startsWith('temporary:')) throw new Error('臨時排班請從原試算表建立');
-    additions.push([false,Utilities.getUuid(),staffId,date,'','',name,'待回覆','','未發送','',0,'','','','','月曆建立（尚未發送）']);
+    const id=Utilities.getUuid();
+    additions.push([false,id,staffId,date,'','',name,'待回覆','','未發送','',0,'','','','','月曆建立（尚未發送）']);
+    addedIds.push(id);
   });
-  // Preflight above completes before the first write. Retained rows keep every notification field.
+  // Only changed rows are replaced. Unchanged replies (including pending) are never resent.
+  // Clearing a date is deliberate and removes even previously answered rows from the active sheet.
   additions.forEach(row=>data.schedule.sheet.appendRow(row));
   removals.forEach(row=>data.schedule.sheet.getRange(row,1,1,SHIFT_APP.SHIFT_HEADERS.length).clearContent());
-  safeLog_('月曆儲存','', '', '成功',date+' 新增 '+additions.length+'，移除未通知 '+removals.length,'');
+  safeLog_(clear?'月曆清空':'月曆儲存','', '', '成功',date+' 新增 '+additions.length+'，移除 '+removals.length,'');
+  removed.forEach(r=>safeLog_('月曆取消排班',r.id,r.staffId,'成功',
+    date+'｜'+r.shift+'｜回覆 '+r.reply+'｜通知 '+r.notification+'｜版次 '+r.version,''));
+  return {date,clear,addedIds,removed,retained:existing.size,changed:!!(addedIds.length||removed.length)};
 }
 
 function masaluSettings_(data,action,p) {
@@ -210,4 +230,5 @@ function masaluManager_(accessToken) {
   const viewer=masaluViewer_(accessToken);
   return viewer&&viewer.manager ? viewer : null;
 }
+
 
