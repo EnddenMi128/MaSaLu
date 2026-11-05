@@ -405,8 +405,8 @@ async function loadBootstrap(showLoading=true){
     state.revision=res.revision || null;
 
     const manager=Boolean(state.viewer?.manager);
-    $('#editBtn').style.display=manager?'':'none';
-    $('#fab').style.display=manager?'':'none';
+    $('#editBtn').style.display=manager?'inline-flex':'none';
+    $('#fab').style.display=manager?'block':'none';
     $('#appName').title=manager?'排班管理員':'個人排班';
 
     $('#appName').textContent=state.settings.app_name || 'MASALU';
