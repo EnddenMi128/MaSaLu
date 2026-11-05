@@ -1,7 +1,8 @@
 /** Additive adapter for the supplied Code.gs. Keep its doPost and LINE functions. */
 const MASALU = Object.freeze({
-  SHIFTS: 'MaSaLu班別', DISPLAY: 'MaSaLu人員顯示',
+  SHIFTS: 'MaSaLu班別', DISPLAY: 'MaSaLu人員顯示', UNIFORMS: 'MaSaLu團服',
   SHIFT_HEADERS: ['id','name','isOff'], DISPLAY_HEADERS: ['id','short','color'],
+  UNIFORM_HEADERS: ['date','uniform','status','deadlineAt','a02NotifiedVersion','noonReminderDate','version','previousUniform'],
   COLORS: ['#7C3AED','#2563EB','#047857','#BE185D','#B45309','#0E7490','#4338CA','#B91C1C']
 });
 
@@ -16,6 +17,7 @@ function setupMaSaLuCalendar() {
     (names.length ? names : ['玉門','田園','休假']).forEach(name=>sheet.appendRow([Utilities.getUuid(),name,name==='休假']));
   }
   if(!book.getSheetByName(MASALU.DISPLAY)) book.insertSheet(MASALU.DISPLAY).appendRow(MASALU.DISPLAY_HEADERS);
+  masaluUniformTable_(book);
   show_('月曆設定分頁已就緒。已綁定 LINE 的 A01–A03 可透過 LINE 登入管理。');
 }
 
@@ -41,6 +43,22 @@ function masaluTable_(name,headers,book) {
   if(headers.some((h,i)=>data[0][i]!==h)) throw new Error(name+' 欄位不符，已停止操作');
   return {sheet,rows:data.slice(1)};
 }
+/** Additive migration: never alter the existing 17-column 排班表. */
+function masaluUniformTable_(book) {
+  book=book||openBook_();
+  let sheet=book.getSheetByName(MASALU.UNIFORMS);
+  if(!sheet) {
+    sheet=book.insertSheet(MASALU.UNIFORMS);
+    sheet.getRange('A:A').setNumberFormat('@');
+  }
+  if(sheet.getLastRow()===0) sheet.appendRow(MASALU.UNIFORM_HEADERS);
+  return masaluTable_(MASALU.UNIFORMS,MASALU.UNIFORM_HEADERS,book);
+}
+function masaluUniformFor_(data,date) {
+  const index=(data.uniforms?.rows||[]).findIndex(r=>masaluDate_(r[0])===date);
+  const row=index>=0?data.uniforms.rows[index]:null;
+  return {index,row,uniform:String(row?.[1]||''),status:String(row?.[2]||''),version:Number(row?.[6])||0};
+}
 function masaluDate_(value) {
   if(value instanceof Date && Number.isFinite(value.getTime())) return Utilities.formatDate(value,openBook_().getSpreadsheetTimeZone(),'yyyy-MM-dd');
   const text=String(value||'').trim();
@@ -57,10 +75,11 @@ function masaluLoad_() {
   const shifts=masaluTable_(MASALU.SHIFTS,MASALU.SHIFT_HEADERS,book);
   const display=masaluTable_(MASALU.DISPLAY,MASALU.DISPLAY_HEADERS,book);
   const schedule=masaluTable_(SHIFT_APP.SHIFTS,SHIFT_APP.SHIFT_HEADERS,book);
-  return {employees,shifts,display,schedule};
+  const uniforms=masaluUniformTable_(book);
+  return {employees,shifts,display,schedule,uniforms};
 }
 function masaluRevision_(data) {
-  const json=JSON.stringify([data.employees.rows,data.shifts.rows,data.display.rows,data.schedule.rows]);
+  const json=JSON.stringify([data.employees.rows,data.shifts.rows,data.display.rows,data.schedule.rows,data.uniforms?.rows||[]]);
   return Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256,json).map(b=>(b&255).toString(16).padStart(2,'0')).join('');
 }
 function masaluBootstrap_(data) {
@@ -87,7 +106,9 @@ function masaluBootstrap_(data) {
     }
     if(staff.some(p=>p.id===staffId)) schedules.push({date,shiftId:shift.id,staffId,replyStatus:String(r[7]||'待回覆')});
   });
-  return {ok:true,staff,shifts,schedules,settings:{app_name:'MASALU'},revision:masaluRevision_(data),serverTime:new Date().toISOString()};
+  const uniforms=(data.uniforms?.rows||[]).filter(r=>masaluDate_(r[0]) && String(r[2])!=='cleared')
+    .map(r=>({date:masaluDate_(r[0]),uniform:String(r[1]||''),status:String(r[2]||'')}));
+  return {ok:true,staff,shifts,schedules,uniforms,settings:{app_name:'MASALU'},revision:masaluRevision_(data),serverTime:new Date().toISOString()};
 }
 
 /** Every calendar request uses a LINE token verified against the Login channel. */
@@ -100,6 +121,8 @@ function masaluApi(action,payload,lineAccessToken) {
       if(!viewer.manager) {
         data.staff=data.staff.filter(p=>p.id===viewer.id);
         data.schedules=data.schedules.filter(r=>r.staffId===viewer.id);
+        const dates=new Set(data.schedules.map(r=>r.date));
+        data.uniforms=data.uniforms.filter(r=>dates.has(r.date));
       }
       return Object.assign(data,{viewer});
     }
@@ -169,7 +192,40 @@ function masaluSaveDay_(data,payload,clear) {
   safeLog_(clear?'月曆清空':'月曆儲存','', '', '成功',date+' 新增 '+additions.length+'，移除 '+removals.length,'');
   removed.forEach(r=>safeLog_('月曆取消排班',r.id,r.staffId,'成功',
     date+'｜'+r.shift+'｜回覆 '+r.reply+'｜通知 '+r.notification+'｜版次 '+r.version,''));
-  return {date,clear,addedIds,removed,retained:existing.size,changed:!!(addedIds.length||removed.length)};
+  const hasWork=[...wanted].some(pair=>{
+    const shiftName=JSON.parse(pair)[1];
+    return bootstrap.shifts.some(s=>s.name===shiftName&&!s.isOff);
+  });
+  const uniformUpdate=masaluSetUniformForDate_(data,date,payload.uniform,clear,hasWork);
+  return {date,clear,addedIds,removed,retained:existing.size,
+    changed:!!(addedIds.length||removed.length||uniformUpdate.uniformChanged),...uniformUpdate};
+}
+
+/** A date has one outfit selection, independent of individual shift replies. */
+function masaluSetUniformForDate_(data,date,requested,clear,hasAssignments) {
+  const old=masaluUniformFor_(data,date);
+  // Older calendar clients omit `uniform`; preserve the current choice.
+  const uniform=requested===undefined ? old.uniform : String(requested||'');
+  if(!['','white','black'].includes(uniform)) throw new Error('團服只能選白色、黑色或暫不選');
+  if(!data.uniforms) return {uniform,uniformStatus:'',uniformChanged:false,deferNotifications:false};
+  const now=new Date(),active=!clear&&hasAssignments;
+  const status=!active?'cleared':uniform?'confirmed':
+    (['pending','not_selected'].includes(old.status)&&!old.uniform ? old.status : 'pending');
+  const startPending=status==='pending'&&old.status!=='pending';
+  const deadline=status==='pending'
+    ? (startPending ? new Date(now.getTime()+5*60*1000) : old.row?.[3]||new Date(now.getTime()+5*60*1000)) : '';
+  const changed=!old.row || uniform!==old.uniform || status!==old.status;
+  const version=changed?old.version+1:old.version;
+  if(changed) {
+    const row=[date,active?uniform:'',status,deadline,
+      startPending?'':old.row?.[4]||'',startPending?'':old.row?.[5]||'',version,
+      uniform!==old.uniform ? old.uniform : old.row?.[7]||''];
+    if(old.index<0) data.uniforms.sheet.appendRow(row);
+    else data.uniforms.sheet.getRange(old.index+2,1,1,MASALU.UNIFORM_HEADERS.length).setValues([row]);
+  }
+  return {uniform:active?uniform:'',uniformStatus:status,oldUniform:old.uniform,uniformChanged:active&&uniform!==old.uniform,
+    deferNotifications:status==='pending',releasePending:active&&uniform&&old.status==='pending',
+    requestA02:startPending,uniformVersion:version};
 }
 
 function masaluSettings_(data,action,p) {
