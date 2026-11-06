@@ -247,19 +247,22 @@ function buildShiftFlex_(shiftId, version, name, info) {
       displayText: '我選擇：' + label
     }
   });
+  const uniform=masaluUniformDisplay_(masaluDate_(info.date));
+  const details=[
+    {type: 'text', text: '📅 排班確認通知', weight: 'bold', size: 'lg', color: '#D96B24'},
+    {type: 'separator'},
+    {type: 'text', text: '親愛的 ' + name.slice(0, 40) + ' 您好：', wrap: true, size: 'sm'},
+    {type: 'text', text: '團長已完成排班，請確認以下安排。', wrap: true, size: 'sm'},
+    {type: 'text', text: '日期：' + info.date, wrap: true, size: 'sm'},
+    {type: 'text', text: '時間：' + info.time, wrap: true, size: 'sm'},
+    {type: 'text', text: '班別：' + info.shift.slice(0, 100), wrap: true, size: 'sm'}
+  ];
+  if(uniform) details.push({type:'text',text:'團服：'+uniform,wrap:true,size:'sm'});
   return {
     type: 'flex', altText: '【排班通知】' + info.date + '，請確認是否同意',
     contents: {
       type: 'bubble',
-      body: {type: 'box', layout: 'vertical', spacing: 'md', contents: [
-        {type: 'text', text: '📅 排班確認通知', weight: 'bold', size: 'lg', color: '#D96B24'},
-        {type: 'separator'},
-        {type: 'text', text: '親愛的 ' + name.slice(0, 40) + ' 您好：', wrap: true, size: 'sm'},
-        {type: 'text', text: '團長已完成排班，請確認以下安排。', wrap: true, size: 'sm'},
-        {type: 'text', text: '日期：' + info.date, wrap: true, size: 'sm'},
-        {type: 'text', text: '時間：' + info.time, wrap: true, size: 'sm'},
-        {type: 'text', text: '班別：' + info.shift.slice(0, 100), wrap: true, size: 'sm'}
-      ]},
+      body: {type: 'box', layout: 'vertical', spacing: 'md', contents: details},
       footer: {type: 'box', layout: 'horizontal', spacing: 'sm', contents: [
         action('同意', 'agree', '#249B59'), action('不同意', 'disagree', '#CF4545')
       ]}
@@ -321,6 +324,10 @@ function doPost(e) {
       result = handleShiftReply_(input);
     } else if (input.kind === 'manager_decision') {
       result = handleManagerDecision_(input);
+    } else if (input.kind === 'uniform_choice') {
+      result = handleUniformChoice_(input);
+    } else if (input.kind === 'uniform_tick') {
+      result = masaluUniformTick_();
     } else if (input.kind === 'bind_or_message') {
       result = handleLineText_(input);
     } else if (input.kind === 'calendar_api') {
@@ -328,6 +335,14 @@ function doPost(e) {
       // independently verifies the LINE access token and A01-A03 management role.
       result = masaluApi(String(input.action || ''), input.payload || {}, input.lineAccessToken);
       if (result.ok && (input.action === 'saveDay' || input.action === 'clearDay')) {
+        if(result.delta.requestA02) {
+          try { result.uniformNotice=masaluNotifyA02Uniform_(result.delta.date,'initial'); }
+          catch(err) { result.uniformNotice={sent:false,error:String(err.message)}; }
+        }
+        if(result.delta.uniformChanged && result.delta.uniform) {
+          try { result.uniformUpdates=masaluNotifyUniformChange_(result.delta.date,result.delta.uniform); }
+          catch(err) { result.uniformUpdates={sent:0,failed:1,error:String(err.message)}; }
+        }
         try {
           result.notifications = masaluNotifyAddedForDate_(result.delta);
         } catch (notifyError) {
@@ -362,13 +377,14 @@ function doPost(e) {
 function masaluNotifyAddedForDate_(delta) {
   const date = masaluDate_(delta && delta.date);
   if (!date) throw new Error('通知日期格式錯誤');
-  const addedIds = new Set((delta.addedIds || []).map(String));
+  if(delta.deferNotifications) return {sent:0,failed:0,skipped:0,deferred:(delta.addedIds||[]).length,details:[]};
+  const addedIds = delta.releasePending ? null : new Set((delta.addedIds || []).map(String));
   const sheet = shiftSheet_();
   const last = sheet.getLastRow();
   const rows = last < 2 ? [] : sheet.getRange(2, 1, last - 1, SHIFT_APP.SHIFT_HEADERS.length).getValues();
   const candidates = [];
   rows.forEach((row, index) => {
-    if (masaluDate_(row[3]) !== date || !row[2] || !row[6] || !addedIds.has(String(row[1]||''))) return;
+    if (masaluDate_(row[3]) !== date || !row[2] || !row[6] || (addedIds&&!addedIds.has(String(row[1]||'')))) return;
     const status = String(row[9] || '');
     const reply = String(row[7] || '');
     // Do not duplicate delivered or in-flight messages, or alter replied rows.

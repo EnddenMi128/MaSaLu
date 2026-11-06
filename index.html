@@ -13,6 +13,7 @@
 html,body{margin:0;width:100%;max-width:100%;overflow-x:hidden;background:var(--bg);color:var(--text)}
 body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans TC",sans-serif;-webkit-text-size-adjust:100%;touch-action:manipulation}
 button,input{font:inherit;font-size:16px}
+select{font:inherit;font-size:16px}
 button:disabled{opacity:.45}
 .app{width:100vw;max-width:100vw;min-height:100dvh;padding:calc(10px + env(safe-area-inset-top)) 10px calc(124px + env(safe-area-inset-bottom))}
 .topbar{display:flex;justify-content:space-between;align-items:center;padding:4px 2px 12px;gap:8px}
@@ -131,6 +132,9 @@ input{width:100%;min-width:0;border:1px solid #e2e5ea;border-radius:11px;padding
 .person-setting-short{font-size:11px;color:var(--muted)}
 .danger{background:#fff0f0;color:#b42318}
 .actions{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-top:13px}
+.uniform-field{display:flex;align-items:center;gap:10px;margin-top:12px;padding:11px;border-radius:13px;background:#f7f8fa}
+.uniform-field label{font-size:13px;font-weight:900;white-space:nowrap}
+.uniform-field select{min-width:0;flex:1;min-height:42px;border:1px solid #e2e5ea;border-radius:11px;padding:8px;background:#fff}
 .primary{background:#111827;color:#fff;box-shadow:none}
 .secondary{background:#eef0f3;box-shadow:none}
 .clear-confirm{display:none;margin-top:9px;padding:10px;border:1px solid #ffd8d4;border-radius:12px;background:#fff3f2;font-size:12px}
@@ -257,6 +261,15 @@ input{width:100%;min-width:0;border:1px solid #e2e5ea;border-radius:11px;padding
       </div>
       <div id="lanes"></div>
 
+      <div class="uniform-field">
+        <label for="uniformSelect">👕 團服</label>
+        <select id="uniformSelect">
+          <option value="">暫不選擇（通知 A02）</option>
+          <option value="white">白色團服</option>
+          <option value="black">黑色團服</option>
+        </select>
+      </div>
+
       <div class="clear-confirm" id="clearConfirm">
         確定清空這一天的全部排班（包含已通知、已回覆的班次）？清空後會通知所有已綁定員工，原排班不能在月曆復原。
         <div class="clear-confirm-actions">
@@ -288,6 +301,7 @@ const state = {
   staff: [],
   shifts: [],
   schedules: [],
+  uniforms: [],
   settings: {},
   viewer: null,
   revision: null,
@@ -409,6 +423,7 @@ function applyBootstrap(res,cached=false){
   state.staff=Array.isArray(res.staff)?res.staff:[];
   state.shifts=Array.isArray(res.shifts)?res.shifts:[];
   state.schedules=Array.isArray(res.schedules)?res.schedules:[];
+  state.uniforms=Array.isArray(res.uniforms)?res.uniforms:[];
   state.settings=res.settings||{};
   state.viewer=res.viewer||null;
   state.revision=res.revision||null;
@@ -457,6 +472,16 @@ function replaceDaySchedules(date, newRows){
   if(Array.isArray(newRows) && newRows.length){
     state.schedules.push(...newRows);
   }
+}
+function setDayUniform(date,uniform,status){
+  state.uniforms=state.uniforms.filter(r=>r.date!==date);
+  if(status!=='cleared')state.uniforms.push({date,uniform:uniform||'',status:status||''});
+}
+function uniformForDate(date){return state.uniforms.find(r=>r.date===date)?.uniform||'';}
+function uniformTitle(date){
+  const record=state.uniforms.find(r=>r.date===date);
+  return ({white:'白色團服',black:'黑色團服'})[record?.uniform]||
+    (record?.status==='pending'?'團服待確認':'未擇衣');
 }
 
 function rowsForDate(date){
@@ -550,6 +575,8 @@ function renderDetail(){
     return;
   }
 
+  $('#detailDate').textContent+=` · ${uniformTitle(selected)}`;
+
   body.innerHTML='';
 
   state.shifts.forEach(shift=>{
@@ -598,6 +625,7 @@ function makeDraft(){
 function openEditor(){
   if(!state.viewer?.manager){toast('只有 A01–A03 管理員可以編輯排班');return;}
   state.draft=makeDraft();
+  $('#uniformSelect').value=uniformForDate(selected);
   const d=dateFromKey(selected);
   $('#sheetTitle').textContent=`${d.getMonth()+1}/${d.getDate()} 編輯排班`;
   $$('.mode').forEach((b,i)=>b.classList.toggle('active',i===0));
@@ -862,12 +890,14 @@ $('#saveBtn').onclick=async()=>{
   try{
     const res=await gasCall('saveDay',{
       date:selected,
-      assignments
+      assignments,
+      uniform:$('#uniformSelect').value
     });
 
     state.revision=res.revision || state.revision;
     forgetBootstrapCache();
     replaceDaySchedules(selected,res.schedules||[]);
+    setDayUniform(selected,res.delta?.uniform,res.delta?.uniformStatus);
     renderCalendar();
     renderDetail();
     $('#sheetwrap').classList.remove('show');
@@ -875,6 +905,7 @@ $('#saveBtn').onclick=async()=>{
     const add=res.notifications?.sent||0,removed=res.cancellationNotifications?.sent||0;
     const skip=(res.notifications?.skipped||0)+(res.cancellationNotifications?.skipped||0);
     toast(warn?'排班已儲存；LINE 成功 '+(add+removed)+'、失敗 '+warn+'、未綁定／略過 '+skip+'，請檢查通知紀錄':
+      res.delta?.deferNotifications?'已通知 A02 選團服；5 分鐘仍未選擇就先發送「未擇衣」排班':
       `排班已儲存，新增通知 ${add} 人、異動通知 ${removed} 人；未重複發送原排班`);
   }catch(err){
     toast(err.message);
@@ -897,6 +928,7 @@ $('#confirmClear').onclick=async()=>{
     state.revision=res.revision || state.revision;
     forgetBootstrapCache();
     replaceDaySchedules(selected,res.schedules||[]);
+    setDayUniform(selected,'','cleared');
     state.draft=makeDraft();
     $('#clearConfirm').classList.remove('show');
     renderEditor();

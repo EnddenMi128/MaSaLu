@@ -5,6 +5,11 @@
  */
 
 export default {
+  async scheduled(_controller, env, _ctx) {
+    if (!env.GAS_SHARED_SECRET || !env.GAS_WEB_APP_URL) throw new Error('GAS Cron configuration missing');
+    // GAS owns the schedule state and deduplicates delayed delivery/reminders.
+    await sendToGas({kind:'uniform_tick'}, env);
+  },
   async fetch(request, env) {
     const url = new URL(request.url);
     if (url.pathname === '/calendar-api') return handleCalendarApi(request, env);
@@ -121,6 +126,15 @@ export function parseManagerPostbackData(data) {
   return {id,version,decision};
 }
 
+export function parseUniformPostbackData(data) {
+  if(typeof data!=='string'||data.length>200)return null;
+  const qs=new URLSearchParams(data);
+  const date=qs.get('date'),version=Number(qs.get('v')),uniform=qs.get('uniform');
+  if(qs.get('action')!=='uniform_choice'||!/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(date||'')||
+      !Number.isSafeInteger(version)||version<1||!['white','black'].includes(uniform))return null;
+  return {date,version,uniform};
+}
+
 async function handleEvent(event, env) {
   if (!event || event.source?.type !== 'user' || !/^U[0-9a-f]{32}$/i.test(event.source.userId || '')) return;
   const lineUid = event.source.userId;
@@ -144,9 +158,10 @@ async function handleEvent(event, env) {
   if (event.type === 'postback') {
     const parsed = parsePostbackData(event.postback?.data);
     const manager = parsed ? null : parseManagerPostbackData(event.postback?.data);
-    if (!parsed && !manager) return;
-    const kind = parsed ? 'shift_reply' : 'manager_decision';
-    const result = await sendToGas({kind, lineUid, eventId, ...(parsed || manager)}, env);
+    const uniform = parsed||manager ? null : parseUniformPostbackData(event.postback?.data);
+    if (!parsed && !manager && !uniform) return;
+    const kind = parsed ? 'shift_reply' : manager ? 'manager_decision' : 'uniform_choice';
+    const result = await sendToGas({kind, lineUid, eventId, ...(parsed || manager || uniform)}, env);
     await replyLineSafe(event.replyToken, result.message, env);
   }
 }

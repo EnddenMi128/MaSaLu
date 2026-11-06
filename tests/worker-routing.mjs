@@ -80,5 +80,22 @@ test('employee and manager postback actions stay distinct', () => {
   assert.equal(workerModule.parsePostbackData('action=manager_shift&id='+id+'&v=2&decision=skip'), null);
   assert.deepEqual(workerModule.parseManagerPostbackData('action=manager_shift&id='+id+'&v=2&decision=replace'), {id,version:2,decision:'replace'});
   assert.equal(workerModule.parseManagerPostbackData('action=manager_shift&id='+id+'&v=2&decision=delete'), null);
+  assert.deepEqual(workerModule.parseUniformPostbackData('action=uniform_choice&date=2026-11-19&v=3&uniform=black'),
+    {date:'2026-11-19',version:3,uniform:'black'});
+  assert.equal(workerModule.parseUniformPostbackData('action=uniform_choice&date=2026-11-19&v=3&uniform=red'), null);
+});
+
+test('minute Cron forwards an authenticated uniform_tick without sending a LINE message', async () => {
+  const oldFetch=globalThis.fetch;
+  let call;
+  globalThis.fetch=async (_url,options)=>{
+    call=JSON.parse(options.body);
+    return new Response(JSON.stringify({ok:true,released:0,reminded:0}),{status:200});
+  };
+  try {
+    await worker.scheduled({cron:'* * * * *'},env,{});
+    assert.equal(call.kind,'uniform_tick');
+    assert.equal(call.secret,env.GAS_SHARED_SECRET);
+  } finally {globalThis.fetch=oldFetch;}
 });
 
