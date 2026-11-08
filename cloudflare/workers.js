@@ -5,7 +5,7 @@
  */
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
     if (url.pathname === '/calendar-api') return handleCalendarApi(request, env);
     if (request.method === 'GET' && url.pathname === '/health') {
@@ -32,7 +32,7 @@ export default {
 
     // 有意等待 GAS 寫回結果，再回傳 200。後端暫時故障時回 502，搭配 LINE Webhook redelivery 重試。
     // GAS 的身分與版本檢查採冪等設計，避免 webhook 重送造成重複變更。
-    const results = await Promise.allSettled(envelope.events.map(event => handleEvent(event, env)));
+    const results = await Promise.allSettled(envelope.events.map(event => handleEvent(event, env, ctx)));
     if (results.some(result => result.status === 'rejected')) {
       for (const result of results) {
         if (result.status === 'rejected') console.error('Webhook processing failed:', String(result.reason?.message || result.reason));
@@ -131,7 +131,7 @@ export function parseManagerPostbackData(data) {
   return {id,version,decision};
 }
 
-async function handleEvent(event, env) {
+async function handleEvent(event, env, ctx) {
   if (!event || event.source?.type !== 'user' || !/^U[0-9a-f]{32}$/i.test(event.source.userId || '')) return;
   const lineUid = event.source.userId;
   const eventId = event.webhookEventId || '';
@@ -147,8 +147,9 @@ async function handleEvent(event, env) {
       return;
     }
     if (!text.startsWith('綁定')) return;
-    const result = await sendToGas({kind: 'bind_or_message', lineUid, text, eventId}, env);
-    await replyLineSafe(event.replyToken, result.message, env);
+    const confirmation = handleBindingMessage(event.replyToken, lineUid, text, eventId, env);
+    ctx?.waitUntil(confirmation.catch(() => {}));
+    await confirmation;
     return;
   }
   if (event.type === 'postback') {
@@ -158,6 +159,38 @@ async function handleEvent(event, env) {
     const kind = parsed ? 'shift_reply' : 'manager_decision';
     const result = await sendToGas({kind, lineUid, eventId, ...(parsed || manager)}, env);
     await replyLineSafe(event.replyToken, result.message, env, result.quickReply);
+  }
+}
+
+async function handleBindingMessage(replyToken, lineUid, text, eventId, env) {
+  const result = await sendToGas({kind: 'bind_or_message', lineUid, text, eventId}, env);
+  const replied = await replyLineSafe(replyToken, result.message, env);
+  if (result.code === 'bound' && result.message && !replied) {
+    await pushBindingConfirmation(lineUid, result.message, env);
+  }
+}
+
+async function pushBindingConfirmation(lineUid, text, env) {
+  const headers = {
+    'content-type': 'application/json; charset=UTF-8',
+    authorization: 'Bearer ' + env.LINE_CHANNEL_ACCESS_TOKEN,
+    'x-line-retry-key': crypto.randomUUID()
+  };
+  const body = JSON.stringify({to: lineUid, messages: [{type: 'text', text: String(text).slice(0, 1800)}]});
+  for (let attempt = 0; attempt < 2; attempt++) {
+    let response;
+    try {
+      response = await fetch('https://api.line.me/v2/bot/message/push', {
+        method: 'POST', headers, body, signal: AbortSignal.timeout(5000)
+      });
+    } catch (error) {
+      if (attempt === 0) continue;
+      throw error;
+    }
+    if (response.ok || (response.status === 409 && response.headers.has('x-line-accepted-request-id'))) return;
+    if (response.status < 500 || attempt === 1) {
+      throw new Error('LINE binding confirmation push HTTP ' + response.status);
+    }
   }
 }
 
@@ -177,11 +210,13 @@ async function sendToGas(payload, env) {
 }
 
 async function replyLineSafe(replyToken, text, env, quickReply) {
-  if (!replyToken || !text) return;
-  try { await replyLine(replyToken, text, env, quickReply); }
-  catch (error) {
-    // GAS 可能已成功寫入；LINE 回覆訊息失敗不應反覆重送已完成事件。
+  if (!replyToken || !text) return false;
+  try {
+    await replyLine(replyToken, text, env, quickReply);
+    return true;
+  } catch (error) {
     console.error('LINE confirmation reply failed:', String(error.message));
+    return false;
   }
 }
 
