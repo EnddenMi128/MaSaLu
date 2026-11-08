@@ -272,3 +272,16 @@ test('retry reuses the replacement if saving the source link was interrupted',()
   assert.deepEqual(h.sends,[target]);
   assert.ok(h.row[16].includes('[替補ID:'+target+']'));
 });
+
+test('unauthenticated GET cannot read the roster or calendar through legacy JSONP',()=>{
+  const {ctx}=harness();
+  ctx.ContentService={
+    MimeType:{JSON:'json'},
+    createTextOutput:text=>({setMimeType:type=>({text,type})})
+  };
+  ctx.masaluBootstrap_=()=>{throw Error('public GET must never load scheduling data');};
+  const response=ctx.doGet({parameter:{action:'bootstrap',callback:'loadCalendar'}});
+  assert.equal(response.type,'json');
+  assert.equal(JSON.parse(response.text).code,'unauthorized');
+  assert.equal(JSON.parse(ctx.doGet({parameter:{}}).text).ok,true);
+});

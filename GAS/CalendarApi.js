@@ -19,17 +19,10 @@ function setupMaSaLuCalendar() {
   show_('月曆設定分頁已就緒。已綁定 LINE 的 A01–A03 可透過 LINE 登入管理。');
 }
 
-/** Existing public JSONP read-only endpoint retained for legacy calendar consumers. */
+/** The calendar reads through the LINE-authenticated POST endpoint. */
 function doGet(e) {
   const q=e && e.parameter || {};
-  if(q.action || q.callback) {
-    if(!/^[A-Za-z_$][A-Za-z0-9_$]{0,100}$/.test(q.callback||'')) return masaluJson_({ok:false,error:'Invalid callback'});
-    let result;
-    try { result=q.action==='bootstrap' ? masaluBootstrap_() : {ok:false,error:'此入口只提供讀取'}; }
-    catch(err) { result={ok:false,error:String(err.message)}; }
-    const json=JSON.stringify(result).replace(/</g,'\\u003c').replace(/\u2028/g,'\\u2028').replace(/\u2029/g,'\\u2029');
-    return ContentService.createTextOutput(q.callback+'('+json+');').setMimeType(ContentService.MimeType.JAVASCRIPT);
-  }
+  if(q.action || q.callback) return masaluJson_({ok:false,code:'unauthorized',error:'請先透過 LINE 登入排班月曆'});
   return masaluJson_({ok:true,message:'MaSaLu 資料接口；請由 GitHub Pages 開啟排班網站'});
 }
 
