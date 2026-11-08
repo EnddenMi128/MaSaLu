@@ -117,7 +117,17 @@ export function parseManagerPostbackData(data) {
   const id=qs.get('id'),version=Number(qs.get('v')),decision=qs.get('decision');
   if (qs.get('action') !== 'manager_shift' ||
       !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id || '') ||
-      !Number.isSafeInteger(version) || version < 1 || !['skip','replace'].includes(decision)) return null;
+      !Number.isSafeInteger(version) || version < 1 || !['skip','replace','select','cancel'].includes(decision)) return null;
+  if (decision==='select') {
+    const staffId=qs.get('staff');
+    if (!staffId) return null;
+    return {id,version,decision,staffId};
+  }
+  if (decision==='replace' && qs.has('page')) {
+    const page=Number(qs.get('page'));
+    if (!Number.isSafeInteger(page)||page<0) return null;
+    return {id,version,decision,page};
+  }
   return {id,version,decision};
 }
 
@@ -147,7 +157,7 @@ async function handleEvent(event, env) {
     if (!parsed && !manager) return;
     const kind = parsed ? 'shift_reply' : 'manager_decision';
     const result = await sendToGas({kind, lineUid, eventId, ...(parsed || manager)}, env);
-    await replyLineSafe(event.replyToken, result.message, env);
+    await replyLineSafe(event.replyToken, result.message, env, result.quickReply);
   }
 }
 
@@ -166,16 +176,16 @@ async function sendToGas(payload, env) {
   return result;
 }
 
-async function replyLineSafe(replyToken, text, env) {
+async function replyLineSafe(replyToken, text, env, quickReply) {
   if (!replyToken || !text) return;
-  try { await replyLine(replyToken, text, env); }
+  try { await replyLine(replyToken, text, env, quickReply); }
   catch (error) {
     // GAS 可能已成功寫入；LINE 回覆訊息失敗不應反覆重送已完成事件。
     console.error('LINE confirmation reply failed:', String(error.message));
   }
 }
 
-async function replyLine(replyToken, text, env) {
+async function replyLine(replyToken, text, env, quickReply) {
   if (!replyToken) return;
   const response = await fetch('https://api.line.me/v2/bot/message/reply', {
     method: 'POST',
@@ -183,7 +193,7 @@ async function replyLine(replyToken, text, env) {
       'content-type': 'application/json; charset=UTF-8',
       authorization: 'Bearer ' + env.LINE_CHANNEL_ACCESS_TOKEN
     },
-    body: JSON.stringify({replyToken, messages: [{type: 'text', text: String(text).slice(0, 1800)}]})
+    body: JSON.stringify({replyToken, messages: [{type: 'text', text: String(text).slice(0, 1800), ...(quickReply ? {quickReply} : {})}]})
   });
   if (!response.ok) throw new Error('LINE reply HTTP ' + response.status);
 }

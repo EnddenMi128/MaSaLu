@@ -191,11 +191,15 @@ function createTemporaryShiftFromSelected() {
   show_('已新增第 ' + targetRow + ' 列臨時排班（尚未發送）。\n請檢查新列，再按「發送選取排班」或「發送已勾選排班」。\n這個 UID 不會進入「員工名單」。');
 }
 
-function sendShiftRow_(rowNumber, force) {
+function sendShiftRow_(rowNumber, force, shiftId) {
   const lock = LockService.getScriptLock();
   if (!lock.tryLock(20000)) return {code: 'failed', message: '系統忙碌，請稍後再試。'};
   try {
     const sheet = shiftSheet_();
+    if (shiftId) {
+      rowNumber = findShiftRow_(sheet, shiftId);
+      if (!rowNumber) return {code:'missing',message:'替補排班已不存在。'};
+    }
     const current = sheet.getRange(rowNumber, 1, 1, SHIFT_APP.SHIFT_HEADERS.length).getValues()[0];
     const display = sheet.getRange(rowNumber, 1, 1, SHIFT_APP.SHIFT_HEADERS.length).getDisplayValues()[0];
     if (!force && current[9] === '已發送') return {code: 'skipped', message: '第 ' + rowNumber + ' 列已發送；如需再通知請使用「重新發送」。'};
@@ -576,10 +580,49 @@ function masaluReadyDaySummary_(date) {
 
 /** Actions on decline notifications are allowed only for bound A01–A03 managers. */
 function handleManagerDecision_(input) {
+  const result = masaluManagerDecisionLocked_(input);
+  if (!result.replacementId) return result;
+  const sent = sendShiftRow_(null, false, result.replacementId);
+  if (sent.code === 'missing') return {ok:true,code:'missing',message:sent.message};
+  if (sent.code === 'failed') {
+    const retry = masaluReplacementButton_('重試發送', input, 'select&staff='+encodeURIComponent(input.staffId), '重試發送替補通知');
+    return {ok:true,code:'replaced',notification:sent.code,
+      message:'替補已儲存，通知發送失敗。請點「重試發送」。',quickReply:{items:[retry]}};
+  }
+  return {ok:true,code:'replaced',notification:sent.code,
+    message:'已安排 '+result.replacementName+' 替補，排班確認通知已送出。'};
+}
+
+function masaluReplacementCandidates_(dayRows, roster) {
+  const unavailable = new Set(dayRows.map(r => String(r[2] || '').trim()));
+  return Object.keys(roster).filter(id => !unavailable.has(id) && validLineUid_(roster[id].uid));
+}
+
+function masaluReplacementButton_(label, input, decision, displayText) {
+  const data = 'action=manager_shift&id='+encodeURIComponent(input.id)+'&v='+Number(input.version)+'&decision='+decision;
+  return {type:'action',action:{type:'postback',label:label.slice(0,20),data,displayText:displayText.slice(0,100)}};
+}
+
+function masaluReplacementPicker_(ids, row, roster, input) {
+  if (!ids.length) return {ok:true,code:'no_candidates',message:'當日沒有可替補的尚未排班人員。'};
+  const requestedPage = Number(input.page);
+  const page = Number.isSafeInteger(requestedPage) && requestedPage > 0
+    ? Math.min(requestedPage, Math.floor((ids.length-1)/10)) : 0;
+  const items = ids.slice(page*10,page*10+10).map(id => {
+    const name = roster[id].name || id;
+    return masaluReplacementButton_(name,input,'select&staff='+encodeURIComponent(id),'選擇替補：'+name);
+  });
+  if (page > 0) items.push(masaluReplacementButton_('上一頁',input,'replace&page='+(page-1),'上一頁替補人員'));
+  if ((page+1)*10 < ids.length) items.push(masaluReplacementButton_('下一頁',input,'replace&page='+(page+1),'下一頁替補人員'));
+  items.push(masaluReplacementButton_('取消',input,'cancel','取消選擇替補'));
+  return {ok:true,code:'replace',message:'請選擇替補對象\n日期：'+masaluDate_(row[3])+'\n班別：'+String(row[6])+'\n以下為當日尚未排班人員',quickReply:{items}};
+}
+
+function masaluManagerDecisionLocked_(input) {
   const uid=String(input.lineUid||''),id=String(input.id||'');
   const version=Number(input.version),decision=String(input.decision||'');
   if (!validLineUid_(uid) || !/^[a-f0-9-]{36}$/i.test(id) ||
-      !Number.isSafeInteger(version) || version<1 || !['skip','replace'].includes(decision))
+      !Number.isSafeInteger(version) || version<1 || !['skip','replace','select','cancel'].includes(decision))
     return {ok:true,code:'invalid',message:'管理操作格式不正確。'};
   const roster=employeeIndex_();
   if (!['A01','A02','A03'].some(key=>roster[key]&&roster[key].uid===uid))
@@ -594,12 +637,46 @@ function handleManagerDecision_(input) {
     if (Number(row[11])!==version) return {ok:true,code:'expired',message:'通知已失效。'};
     if (String(row[7]||'')!=='不同意') return {ok:true,code:'expired',message:'這筆排班並非「不同意」狀態。'};
     const date=masaluDate_(row[3]);
-    if (decision==='replace') return {ok:true,code:'replace',message:'請開啟 MaSaLu 排班管理，選取 '+date+'，將替補員工拖入班別後儲存：\nhttps://liff.line.me/2010020470-VBPZRUQ9?date='+date};
-    const note=String(row[16]||'');
-    if (note.includes('[管理已略過]')) return {ok:true,code:'already',message:'這筆無法出席排班已略過。'};
-    sheet.getRange(number,17).setValue((note ? note+'｜' : '')+'[管理已略過]');
-    safeLog_('無法出席處理',id,String(row[2]||''),'略過',date,String(input.eventId||''));
-    return {ok:true,code:'skipped',message:'已略過 '+date+' 的無法出席排班，原始紀錄保留。'};
+    if (decision==='cancel') return {ok:true,code:'cancelled',message:'已取消選擇替補。'};
+    if (decision==='skip') {
+      const note=String(row[16]||'');
+      if (note.includes('[管理已略過]')) return {ok:true,code:'already',message:'這筆無法出席排班已略過。'};
+      sheet.getRange(number,17).setValue((note ? note+'｜' : '')+'[管理已略過]');
+      safeLog_('無法出席處理',id,String(row[2]||''),'略過',date,String(input.eventId||''));
+      return {ok:true,code:'skipped',message:'已略過 '+date+' 的無法出席排班，原始紀錄保留。'};
+    }
+    if (!date || !row[6]) return {ok:true,code:'expired',message:'原排班的日期或班別已變更。'};
+    const dayRows=sheet.getRange(2,1,sheet.getLastRow()-1,SHIFT_APP.SHIFT_HEADERS.length).getValues()
+      .filter(r=>masaluDate_(r[3])===date && r[6]);
+    const sourceMarker='替補來源：'+id;
+    const replacement=String(row[16]||'').match(/\[替補ID:([a-f0-9-]{36})\]/i);
+    const existing=dayRows.find(r=>String(r[16]||'')===sourceMarker || (replacement && r[1]===replacement[1]));
+    if (existing || replacement) {
+      if (existing && !replacement) {
+        sheet.getRange(number,17).setValue(String(row[16]||'')+'[管理已略過][替補ID:'+existing[1]+']');
+        SpreadsheetApp.flush();
+      }
+      if (decision==='select' && existing && String(existing[2])===String(input.staffId) &&
+          ['未發送','發送失敗','發送中'].includes(String(existing[9]))) {
+        return {ok:true,code:'replaced',replacementId:existing[1],replacementName:roster[existing[2]]?.name||String(existing[2])};
+      }
+      return {ok:true,code:'already',message:'這筆排班已安排替補，請查看最新月曆。'};
+    }
+    const candidates=masaluReplacementCandidates_(dayRows,roster);
+    if (decision==='replace') return masaluReplacementPicker_(candidates,row,roster,input);
+    const staffId=String(input.staffId||'');
+    if (!candidates.includes(staffId)) {
+      const picker=masaluReplacementPicker_(candidates,row,roster,input);
+      picker.message='該人員目前無法替補。\n'+picker.message;
+      return picker;
+    }
+    const replacementId=Utilities.getUuid();
+    sheet.appendRow([false,replacementId,staffId,row[3],row[4],row[5],row[6],
+      '待回覆','','未發送','',0,'','','','',sourceMarker]);
+    sheet.getRange(number,17).setValue(String(row[16]||'')+'[管理已略過][替補ID:'+replacementId+']');
+    SpreadsheetApp.flush();
+    safeLog_('安排替補',id,staffId,'成功',date,String(input.eventId||''));
+    return {ok:true,code:'replaced',replacementId,replacementName:roster[staffId].name||staffId};
   } finally { lock.releaseLock(); }
 }
 
