@@ -179,3 +179,96 @@ test('clear notification broadcasts to bound staff; non-clear only notifies remo
   assert.equal(deliveries[0].to,uid2);
 });
 
+function replacementHarness(count=3) {
+  const h=harness(); h.row[7]='不同意';
+  const records=[h.row];
+  const roster={A04:{name:'無法出席',uid},A01:{name:'團長',uid:managerUid}};
+  for(let i=0;i<count;i++) roster['E'+i]={name:'人員'+i,uid:'U'+'c'.repeat(32)};
+  roster.unbound={name:'未綁定',uid:''};
+  const sheet={
+    getLastRow:()=>records.length+1,
+    appendRow:r=>records.push(r),
+    getRange(r,c,n=1,m=1){return {
+      getValues:()=>records.slice(r-2,r-2+n).map(row=>row.slice(c-1,c-1+m)),
+      setValue:v=>{records[r-2][c-1]=v;}
+    };}
+  };
+  h.ctx.shiftSheet_=()=>sheet;
+  h.ctx.employeeIndex_=()=>roster;
+  h.ctx.findShiftRow_=(_s,id)=>{const i=records.findIndex(r=>r[1]===id);return i<0?0:i+2;};
+  h.ctx.Utilities.getUuid=()=> '22222222-2222-2222-2222-222222222222';
+  const sends=[];
+  h.ctx.sendShiftRow_=(_row,_force,shiftId)=>{
+    sends.push(shiftId);
+    records.find(r=>r[1]===shiftId)[9]='已發送';
+    return {code:'sent'};
+  };
+  return {...h,records,roster,sends,input:{lineUid:managerUid,id:uuid,version:1,decision:'replace'}};
+}
+
+test('replacement picker lists same-day unscheduled bound people across all shifts',()=>{
+  const h=replacementHarness();
+  h.records.push([false,'other','E0','2026-11-05','','','田園','同意']);
+  h.records.push([false,'next-day','E1','2026-11-06','','','田園','同意']);
+  const result=h.ctx.handleManagerDecision_(h.input);
+  assert.match(result.message,/^請選擇替補對象/);
+  const labels=result.quickReply.items.map(i=>i.action.label);
+  assert.deepEqual([...labels],['團長','人員1','人員2','取消']);
+  assert.equal(h.records.length,3);
+  assert.equal(h.sends.length,0);
+});
+
+test('replacement picker paginates within LINE limits and handles empty/cancel',()=>{
+  const h=replacementHarness(25);
+  const first=h.ctx.handleManagerDecision_(h.input);
+  assert.ok(first.quickReply.items.length<=13);
+  assert.ok(first.quickReply.items.some(i=>i.action.label==='下一頁'));
+  const next=h.ctx.handleManagerDecision_({...h.input,page:1});
+  assert.equal(next.quickReply.items.length,13);
+  assert.equal(h.ctx.handleManagerDecision_({...h.input,decision:'cancel'}).code,'cancelled');
+  h.ctx.employeeIndex_=()=>({A04:h.roster.A04,A01:h.roster.A01});
+  h.records.push([false,'other','A01','2026-11-05','','','田園','待回覆']);
+  assert.equal(h.ctx.handleManagerDecision_(h.input).code,'no_candidates');
+});
+
+test('selection rechecks availability, saves original shift, sends once and rejects duplicate managers',()=>{
+  const h=replacementHarness();
+  h.records.push([false,'other','E0','2026-11-05','','','田園','待回覆']);
+  const stale=h.ctx.handleManagerDecision_({...h.input,decision:'select',staffId:'E0'});
+  assert.match(stale.message,/該人員目前無法替補。/);
+  assert.ok(stale.quickReply.items.every(i=>i.action.label!=='人員0'));
+  assert.equal(h.sends.length,0);
+  const result=h.ctx.handleManagerDecision_({...h.input,decision:'select',staffId:'E1'});
+  assert.equal(result.code,'replaced');
+  assert.equal(h.records[2][2],'E1');
+  assert.equal(h.records[2][6],'玉門');
+  assert.equal(h.records[0][7],'不同意');
+  assert.match(h.records[0][16],/管理已略過/);
+  assert.equal(h.sends.length,1);
+  assert.equal(h.ctx.handleManagerDecision_({...h.input,decision:'select',staffId:'E2'}).code,'already');
+  assert.equal(h.sends.length,1);
+  assert.equal(h.records.length,3);
+});
+
+test('failed replacement delivery can retry the same person without creating another assignment',()=>{
+  const h=replacementHarness();
+  h.ctx.sendShiftRow_=()=>({code:'failed'});
+  const input={...h.input,decision:'select',staffId:'E0'};
+  const failure=h.ctx.handleManagerDecision_(input);
+  assert.equal(failure.notification,'failed');
+  assert.match(failure.quickReply.items[0].action.data,/decision=select&staff=E0$/);
+  assert.equal(h.ctx.handleManagerDecision_(input).notification,'failed');
+  assert.equal(h.records.length,2);
+  assert.equal(h.ctx.handleManagerDecision_({...input,lineUid:uid}).code,'unauthorized');
+});
+
+test('retry reuses the replacement if saving the source link was interrupted',()=>{
+  const h=replacementHarness();
+  const target='22222222-2222-2222-2222-222222222222';
+  h.records.push([false,target,'E0','2026-11-05','','','玉門','待回覆','','未發送','',0,'','','','','替補來源：'+uuid]);
+  const result=h.ctx.handleManagerDecision_({...h.input,decision:'select',staffId:'E0'});
+  assert.equal(result.notification,'sent');
+  assert.equal(h.records.length,2);
+  assert.deepEqual(h.sends,[target]);
+  assert.ok(h.row[16].includes('[替補ID:'+target+']'));
+});

@@ -82,3 +82,21 @@ test('employee and manager postback actions stay distinct', () => {
   assert.equal(workerModule.parseManagerPostbackData('action=manager_shift&id='+id+'&v=2&decision=delete'), null);
 });
 
+test('signed replacement webhook forwards selection and preserves quick reply buttons', async()=>{
+  const {createHmac}=await import('node:crypto');
+  const id='11111111-1111-1111-1111-111111111111';
+  const body=JSON.stringify({events:[{type:'postback',replyToken:'reply',source:{type:'user',userId:'U'+'a'.repeat(32)},postback:{data:'action=manager_shift&id='+id+'&v=1&decision=select&staff=A05'}}]});
+  const quickReply={items:[{type:'action',action:{type:'postback',label:'人員甲',data:'example'}}]};
+  const old=globalThis.fetch,calls=[];
+  globalThis.fetch=async(url,init)=>{
+    const data=JSON.parse(init.body); calls.push(data);
+    return new Response(JSON.stringify(url===env.GAS_WEB_APP_URL?{ok:true,message:'請選擇替補對象',quickReply}:{}));
+  };
+  try {
+    const response=await worker.fetch(new Request('https://worker.example/webhook',{method:'POST',body,headers:{'x-line-signature':createHmac('sha256',env.LINE_CHANNEL_SECRET).update(body).digest('base64')}}),env);
+    assert.equal(response.status,200);
+    assert.equal(calls[0].staffId,'A05');
+    assert.equal(calls[0].kind,'manager_decision');
+    assert.deepEqual(calls[1].messages[0].quickReply,quickReply);
+  } finally {globalThis.fetch=old;}
+});
