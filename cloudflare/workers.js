@@ -131,6 +131,19 @@ export function parseManagerPostbackData(data) {
   return {id,version,decision};
 }
 
+function parseShiftFollowupData(data) {
+  if (typeof data !== 'string' || data.length > 300) return null;
+  const qs = new URLSearchParams(data);
+  const id = qs.get('id'), version = Number(qs.get('v')), choice = qs.get('choice');
+  const token = qs.get('proof') || '';
+  if (qs.get('action') !== 'shift_followup' ||
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id || '') ||
+      !Number.isSafeInteger(version) || version < 1 ||
+      !/^(contact|swap(?:_send)?|leave(?:_(?:personal|sick|other)(?:_send)?)?)$/.test(choice || '') ||
+      (token && !/^[A-Za-z0-9_-]{43}$/.test(token))) return null;
+  return {id,version,choice,token};
+}
+
 async function handleEvent(event, env, ctx) {
   if (!event || event.source?.type !== 'user' || !/^U[0-9a-f]{32}$/i.test(event.source.userId || '')) return;
   const lineUid = event.source.userId;
@@ -146,6 +159,11 @@ async function handleEvent(event, env, ctx) {
       await replyLine(event.replyToken, '您的 LINE UID：\n' + lineUid + '\n\n若要接收臨時排班，請私下提供給團長。請勿公開張貼。', env);
       return;
     }
+    if (/^排班留言(?:\s|$)/.test(text)) {
+      const result = await sendToGas({kind:'shift_followup',lineUid,eventId,text},env);
+      await replyLineSafe(event.replyToken,result.message,env,result.quickReply);
+      return;
+    }
     if (!text.startsWith('綁定')) return;
     const confirmation = handleBindingMessage(event.replyToken, lineUid, text, eventId, env);
     ctx?.waitUntil(confirmation.catch(() => {}));
@@ -153,12 +171,14 @@ async function handleEvent(event, env, ctx) {
     return;
   }
   if (event.type === 'postback') {
-    const parsed = parsePostbackData(event.postback?.data);
-    const manager = parsed ? null : parseManagerPostbackData(event.postback?.data);
-    if (!parsed && !manager) return;
-    const kind = parsed ? 'shift_reply' : 'manager_decision';
-    const result = await sendToGas({kind, lineUid, eventId, ...(parsed || manager)}, env);
-    await replyLineSafe(event.replyToken, result.message, env, result.quickReply);
+    const data = event.postback?.data;
+    const parsed = parsePostbackData(data);
+    const followup = parsed ? null : parseShiftFollowupData(data);
+    const manager = parsed || followup ? null : parseManagerPostbackData(data);
+    if (!parsed && !followup && !manager) return;
+    const kind = parsed ? 'shift_reply' : followup ? 'shift_followup' : 'manager_decision';
+    const result = await sendToGas({kind, lineUid, eventId, ...(parsed || followup || manager)}, env);
+    await replyLineSafe(event.replyToken, result.message, env, result.quickReply, result.replyMessage);
   }
 }
 
@@ -209,10 +229,10 @@ async function sendToGas(payload, env) {
   return result;
 }
 
-async function replyLineSafe(replyToken, text, env, quickReply) {
+async function replyLineSafe(replyToken, text, env, quickReply, replyMessage) {
   if (!replyToken || !text) return false;
   try {
-    await replyLine(replyToken, text, env, quickReply);
+    await replyLine(replyToken, text, env, quickReply, replyMessage);
     return true;
   } catch (error) {
     console.error('LINE confirmation reply failed:', String(error.message));
@@ -220,15 +240,16 @@ async function replyLineSafe(replyToken, text, env, quickReply) {
   }
 }
 
-async function replyLine(replyToken, text, env, quickReply) {
+async function replyLine(replyToken, text, env, quickReply, replyMessage) {
   if (!replyToken) return;
+  const message = replyMessage || {type:'text',text:String(text).slice(0,1800),...(quickReply?{quickReply}:{})};
   const response = await fetch('https://api.line.me/v2/bot/message/reply', {
     method: 'POST',
     headers: {
       'content-type': 'application/json; charset=UTF-8',
       authorization: 'Bearer ' + env.LINE_CHANNEL_ACCESS_TOKEN
     },
-    body: JSON.stringify({replyToken, messages: [{type: 'text', text: String(text).slice(0, 1800), ...(quickReply ? {quickReply} : {})}]})
+    body: JSON.stringify({replyToken, messages: [message]})
   });
   if (!response.ok) throw new Error('LINE reply HTTP ' + response.status);
 }
