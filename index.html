@@ -14,7 +14,7 @@ html,body{margin:0;width:100%;max-width:100%;overflow-x:hidden;background:var(--
 body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans TC",sans-serif;-webkit-text-size-adjust:100%;touch-action:manipulation}
 button,input{font:inherit;font-size:16px}
 button:disabled{opacity:.45}
-.app{width:100vw;max-width:100vw;min-height:100dvh;padding:calc(10px + env(safe-area-inset-top)) 10px calc(124px + env(safe-area-inset-bottom))}
+.app{width:100vw;max-width:100vw;min-height:100dvh;padding:calc(10px + env(safe-area-inset-top)) 10px calc(16px + env(safe-area-inset-bottom))}
 .topbar{display:flex;justify-content:space-between;align-items:center;padding:4px 2px 12px;gap:8px}
 .brand{font-size:20px;font-weight:900;letter-spacing:.5px}
 .sub{font-size:12px;color:var(--muted);margin-top:2px}
@@ -25,47 +25,25 @@ button:disabled{opacity:.45}
 .cal-head{display:flex;justify-content:space-between;align-items:center;padding:14px}
 .month-title{font-size:18px;font-weight:900}
 .navs{display:flex;gap:7px}
-.week{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));padding:0 7px 7px;text-align:center;color:var(--muted);font-size:11px}
-.grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));border-top:1px solid var(--line)}
-.day{min-width:0;min-height:72px;padding:6px 4px;border-right:1px solid var(--line);border-bottom:1px solid var(--line);overflow:hidden;background:#fff}
-.day.has-shift{min-height:108px}
+.week{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));padding:0 0 7px;text-align:center;color:var(--muted);font-size:11px}
+.grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));grid-auto-rows:90px;border-top:1px solid var(--line)}
+.day{min-width:0;padding:3px;border-right:1px solid var(--line);border-bottom:1px solid var(--line);overflow:hidden;background:#fff}
 .day:nth-child(7n){border-right:0}
 .day.other{background:#fafbfc;color:#c4c7ce}
 .day.selected{outline:2px solid #111827;outline-offset:-2px;background:#fbfbfd}
-.num{font-size:11px;font-weight:800}
-.today .num{display:inline-flex;align-items:center;justify-content:center;width:21px;height:21px;border-radius:7px;background:#111827;color:#fff}
-.minipeople{
-  display:flex;
-  flex-direction:column;
-  align-items:stretch;
-  gap:3px;
-  margin-top:5px
-}
-.shift-mini-group{
-  display:grid;
-  grid-template-columns:repeat(2,17px);
-  justify-content:start;
-  align-items:start;
-  gap:3px;
-  padding:3px;
-  border:1px solid rgba(17,24,39,.10);
-  border-radius:7px;
-  background:rgba(148,163,184,.09)
-}
-.shift-mini-group-label{
-  grid-column:1/-1;
-  width:100%;
-  font-size:7px;
-  line-height:1;
-  color:#7b818b;
-  font-weight:800;
-  margin-bottom:1px;
-  white-space:nowrap;
-  overflow:hidden;
-  text-overflow:ellipsis
-}
-.person-mini{width:17px;height:17px;flex:0 0 17px;border-radius:6px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:9px;font-weight:900;box-shadow:inset 0 0 0 1px rgba(255,255,255,.45),0 1px 3px rgba(0,0,0,.12)}
-.more{display:none}
+.date-row{display:flex;align-items:center;justify-content:space-between;gap:1px}
+.num{font-size:11px;font-weight:800;line-height:15px}
+.today .num{width:17px;border-radius:5px;background:#111827;color:#fff;text-align:center}
+.minipeople{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));grid-template-rows:repeat(2,33px);gap:1px 2px;margin-top:1px}
+.shift-mini-group{min-width:0}
+.shift-mini-group:nth-child(1){grid-area:1/1}
+.shift-mini-group:nth-child(2){grid-area:1/2}
+.shift-mini-group:nth-child(3){grid-area:2/1}
+.shift-mini-group:nth-child(4){grid-area:2/2}
+.shift-mini-group-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:9px;line-height:10px;color:#545b66;font-weight:800}
+.shift-mini-people{display:grid;grid-template-columns:repeat(2,minmax(0,11px));gap:1px}
+.person-mini{display:grid;place-items:center;aspect-ratio:1;border-radius:2px;color:#fff;font-size:clamp(7px,2.1vw,9px);line-height:1;font-weight:900}
+.more{font-size:8px;line-height:1;color:#4b5563;font-weight:800}
 .detail-card{margin-top:10px;padding:14px;overflow:visible}
 .detail-top{display:flex;justify-content:space-between;align-items:flex-start;gap:8px}
 .detail-title{font-size:17px;font-weight:900}
@@ -84,7 +62,7 @@ button:disabled{opacity:.45}
 .person-chip{width:44px;height:44px;border-radius:13px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:17px;font-weight:900;position:relative}
 .person-chip small{position:absolute;bottom:-17px;width:68px;text-align:center;color:#4b5563;font-size:10px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .empty{padding:18px 0 4px;color:var(--muted);font-size:13px}
-.fab{display:none;position:fixed;z-index:10;left:10px;right:10px;bottom:calc(10px + env(safe-area-inset-bottom));height:48px;border:0;border-radius:14px;background:#111827;color:#fff;font-size:14px;font-weight:900;box-shadow:0 8px 20px rgba(17,24,39,.20)}
+.calendar-add{display:none;margin:8px 0 0 auto;min-height:44px;padding:0 12px;border:0;border-radius:11px;background:#111827;color:#fff;font-size:13px;font-weight:900}
 .status{font-size:11px;color:var(--muted);padding:10px 2px 0;text-align:center}
 
 .sheetwrap{position:fixed;inset:0;background:rgba(17,24,39,.35);display:none;z-index:20}
@@ -147,26 +125,23 @@ input{width:100%;min-width:0;border:1px solid #e2e5ea;border-radius:11px;padding
 .toast{position:fixed;z-index:40;left:10px;right:10px;bottom:calc(78px + env(safe-area-inset-bottom));display:none;background:#111827;color:#fff;border-radius:11px;padding:11px 14px;font-size:14px;white-space:normal;overflow-wrap:anywhere;line-height:1.5}
 .loading{position:fixed;inset:0;z-index:50;background:rgba(246,247,251,.82);display:none;align-items:center;justify-content:center;font-weight:900}
 .loading.show{display:flex}
+@media(max-width:480px){
+  .shift-mini-group-label{max-width:2em;text-overflow:clip;font-size:clamp(8px,2.1vw,9px)}
+}
 @media(max-width:360px){
-  .day{min-height:64px;padding:5px 3px}
-  .day.has-shift{min-height:100px}
-  .shift-mini-group{grid-template-columns:repeat(2,16px)}
-  .person-mini{width:16px;height:16px;flex-basis:16px;font-size:8px;border-radius:5px}
+  .day{padding-inline:2px}
   .lane{flex-basis:45vw;min-width:45vw}
 }
 
-/* Calendar integration: retain the original layout and staff colours. */
-.shift-mini-group{grid-template-columns:minmax(0,1fr)}
-.person-mini{width:auto;height:auto;min-height:22px;min-width:0;flex:auto;padding:3px 2px;font-size:10px;line-height:1.35;text-align:center;overflow-wrap:anywhere}
-.person-mini.pending,.person-chip.pending{background:#9ca3af!important;color:#fff;box-shadow:none}
-.shift-mini-group-label{font-size:9px;line-height:1.3;white-space:normal;overflow-wrap:anywhere}
+.person-mini.pending,.person-chip.pending{background:#9ca3af!important;box-shadow:none}
+.person-mini.pending{color:#18212f}
 #lanes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));overflow:visible;gap:7px}
 .lane{width:auto;min-width:0;max-width:none;flex:initial;padding:7px}
 .lanehead{flex-wrap:wrap}.lanename{white-space:normal;overflow-wrap:anywhere}
 .lane .dragperson{width:100%;padding:5px;flex-wrap:wrap;gap:3px}
 .lane .dragperson span{white-space:normal;overflow-wrap:anywhere}
 .day[role=button]{cursor:pointer}.day:focus-visible{outline:3px solid #2563eb;outline-offset:-3px}
-@media(max-width:360px){.person-mini{width:auto;height:auto;flex-basis:auto;font-size:9px}.lane{min-width:0;flex-basis:auto}}
+@media(max-width:360px){.lane{min-width:0;flex-basis:auto}}
 
 </style></head>
 <body>
@@ -193,6 +168,7 @@ input{width:100%;min-width:0;border:1px solid #e2e5ea;border-radius:11px;padding
     <div class="week"><div>日</div><div>一</div><div>二</div><div>三</div><div>四</div><div>五</div><div>六</div></div>
     <div class="grid" id="calendar"></div>
   </section>
+  <button class="calendar-add" id="fab">＋ 新增 / 編輯排班</button>
 
   <section class="detail-card">
     <div class="detail-top">
@@ -208,7 +184,6 @@ input{width:100%;min-width:0;border:1px solid #e2e5ea;border-radius:11px;padding
   <div class="status" id="statusText"></div>
 </div>
 
-<button class="fab" id="fab">＋ 新增 / 編輯排班</button>
 
 <div class="sheetwrap" id="sheetwrap">
   <div class="sheet">
@@ -464,15 +439,14 @@ function rowsForDate(date){
 }
 
 
-function workGroupsForDate(date){
-  const rows=rowsForDate(date);
-  return state.shifts
-    .filter(shift=>!shift.isOff)
-    .map(shift=>({
-      shift,
-      ids:sortIds(rows.filter(r=>r.shiftId===shift.id).map(r=>r.staffId))
-    }))
-    .filter(group=>group.ids.length);
+function calendarShiftSlots(){
+  const workShifts=state.shifts.filter(shift=>!shift.isOff);
+  const primary=['玉門','田園'].map(label=>({
+    label,
+    shift:workShifts.find(shift=>shift.name.startsWith(label))
+  }));
+  const others=workShifts.filter(shift=>!primary.some(slot=>slot.shift===shift));
+  return primary.concat(others.map(shift=>({label:shift.name,shift}))).slice(0,4);
 }
 
 function scheduledWorkIds(date){
@@ -489,42 +463,48 @@ function renderCalendar(){
 
   const first=new Date(viewYear,viewMonth,1);
   const start=new Date(viewYear,viewMonth,1-first.getDay());
+  const daysInMonth=new Date(viewYear,viewMonth+1,0).getDate();
+  const cellCount=7*Math.ceil((first.getDay()+daysInMonth)/7);
+  const slots=calendarShiftSlots();
 
-  for(let i=0;i<42;i++){
+  for(let i=0;i<cellCount;i++){
     const d=new Date(start);
     d.setDate(start.getDate()+i);
     const k=keyOf(d);
-    const groups=workGroupsForDate(k);
+    const dayRows=rowsForDate(k);
 
     const cell=document.createElement('div');
     cell.className='day'
-      +(groups.length?' has-shift':'')
       +(d.getMonth()!==viewMonth?' other':'')
       +(k===selected?' selected':'')
       +(k===keyOf(now)?' today':'');
 
-    const groupHtml=groups.map(group=>{
-      const icons=group.ids.map(id=>{
-        const p=pById(id);
-        const row=rowsForDate(k).find(r=>r.staffId===id&&r.shiftId===group.shift.id);
-        const pending=row?.replyStatus!=='同意';
-        return p
-          ? `<div class="person-mini${pending?' pending':''}" style="background:${escapeHtml(p.color)}" title="${escapeHtml(p.name)}${pending?'（待回覆）':''}">${escapeHtml(p.name)}</div>`
-          : '';
+    const count=dayRows.filter(row=>isWorkShift(row.shiftId)&&pById(row.staffId)).length;
+    let shown=0;
+    const groupHtml=slots.map(({label,shift})=>{
+      const rows=shift ? dayRows.filter(row=>row.shiftId===shift.id) : [];
+      const ids=sortIds(rows.map(row=>row.staffId)).slice(0,4);
+      if(!ids.length) return '<div class="shift-mini-group" aria-hidden="true"></div>';
+      shown+=ids.length;
+      const icons=ids.map(id=>{
+        const person=pById(id);
+        const pending=rows.find(row=>row.staffId===id)?.replyStatus!=='同意';
+        const mark=Array.from(String(person.short || person.name).trim())[0] || '？';
+        return `<div class="person-mini${pending?' pending':''}" style="background:${escapeHtml(person.color)}" title="${escapeHtml(person.name)}${pending?'（待回覆）':''}">${escapeHtml(mark)}</div>`;
       }).join('');
-
-      return `<div class="shift-mini-group" title="${escapeHtml(group.shift.name)}">`+
-        `<div class="shift-mini-group-label">${escapeHtml(group.shift.name)}</div>`+
-        icons+
-      `</div>`;
+      return `<div class="shift-mini-group" title="${escapeHtml(shift.name)}">`+
+        `<div class="shift-mini-group-label">${escapeHtml(label)}</div>`+
+        `<div class="shift-mini-people">${icons}</div></div>`;
     }).join('');
 
+    const hidden=count-shown;
     cell.innerHTML=
-      `<div class="num">${d.getDate()}</div>`+
-      `<div class="minipeople">${groupHtml}</div>`;
+      `<div class="date-row"><div class="num">${d.getDate()}</div>`+
+      (hidden>0 ? `<span class="more" title="點日期查看完整名單">+${hidden}</span>` : '')+'</div>'+
+      (shown ? `<div class="minipeople">${groupHtml}</div>` : '');
     cell.setAttribute('role','button');
     cell.tabIndex=0;
-    cell.setAttribute('aria-label',`${k}，${groups.reduce((n,g)=>n+g.ids.length,0)} 人次排班`);
+    cell.setAttribute('aria-label',`${k}，${count} 人次排班`);
     cell.setAttribute('aria-pressed',String(k===selected));
     cell.onkeydown=e=>{ if(e.key==='Enter' || e.key===' '){e.preventDefault();cell.click();} };
     cell.onclick=()=>{
