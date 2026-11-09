@@ -170,3 +170,37 @@ test('an already-bound or rejected binding never sends the successful binding pu
     assert.deepEqual(calls, [env.GAS_WEB_APP_URL, 'https://api.line.me/v2/bot/message/reply', env.GAS_WEB_APP_URL]);
   } finally { globalThis.fetch = oldFetch; }
 });
+
+
+test('signed acceptance preserves the Flex card and follow-ups are routed to GAS',async()=>{
+  const id='11111111-1111-1111-1111-111111111111';
+  const userId='U'+'a'.repeat(32);
+  const card={type:'flex',altText:'已同意排班',contents:{type:'bubble'}};
+  const old=globalThis.fetch,calls=[];
+  globalThis.fetch=async(url,init)=>{
+    const data=JSON.parse(init.body); calls.push(data);
+    return new Response(JSON.stringify(url===env.GAS_WEB_APP_URL
+      ? {ok:true,message:'已同意排班',...(data.kind==='shift_reply'?{replyMessage:card}:{})}
+      : {}));
+  };
+  try {
+    const events=[
+      {type:'postback',postback:{data:'action=shift_reply&id='+id+'&v=1&choice=agree'}},
+      {type:'postback',postback:{data:'action=shift_followup&id='+id+'&v=1&choice=leave_sick'}},
+      {type:'message',message:{type:'text',text:'排班留言 ABCDEF01 測試'}}
+    ];
+    for (const event of events) {
+      const body=JSON.stringify({events:[{...event,source:{type:'user',userId},replyToken:'reply'}]});
+      const signature=createHmac('sha256',env.LINE_CHANNEL_SECRET).update(body).digest('base64');
+      const response=await worker.fetch(new Request('https://worker.example/webhook',{
+        method:'POST',body,headers:{'x-line-signature':signature}
+      }),env);
+      assert.equal(response.status,200);
+    }
+    assert.deepEqual(calls[1].messages,[card]);
+    assert.equal(calls[2].kind,'shift_followup');
+    assert.equal(calls[2].choice,'leave_sick');
+    assert.equal(calls[4].kind,'shift_followup');
+    assert.equal(calls[4].text,'排班留言 ABCDEF01 測試');
+  } finally {globalThis.fetch=old;}
+});
