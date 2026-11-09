@@ -26,7 +26,7 @@ button:disabled{opacity:.45}
 .month-title{font-size:18px;font-weight:900}
 .navs{display:flex;gap:7px}
 .week{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));padding:0 0 7px;text-align:center;color:var(--muted);font-size:11px}
-.grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));grid-auto-rows:90px;border-top:1px solid var(--line)}
+.grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));grid-auto-rows:minmax(90px,auto);border-top:1px solid var(--line)}
 .day{min-width:0;padding:3px;border-right:1px solid var(--line);border-bottom:1px solid var(--line);overflow:hidden;background:#fff}
 .day:nth-child(7n){border-right:0}
 .day.other{background:#fafbfc;color:#c4c7ce}
@@ -34,15 +34,12 @@ button:disabled{opacity:.45}
 .date-row{display:flex;align-items:center;justify-content:space-between;gap:1px}
 .num{font-size:11px;font-weight:800;line-height:15px}
 .today .num{width:17px;border-radius:5px;background:#111827;color:#fff;text-align:center}
-.minipeople{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));grid-template-rows:repeat(2,33px);gap:1px 2px;margin-top:1px}
+.minipeople{display:flex;flex-direction:column;gap:3px;margin-top:2px}
 .shift-mini-group{min-width:0}
-.shift-mini-group:nth-child(1){grid-area:1/1}
-.shift-mini-group:nth-child(2){grid-area:1/2}
-.shift-mini-group:nth-child(3){grid-area:2/1}
-.shift-mini-group:nth-child(4){grid-area:2/2}
+.shift-mini-group+.shift-mini-group{border-top:1px solid var(--line);padding-top:2px}
 .shift-mini-group-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:9px;line-height:10px;color:#545b66;font-weight:800}
-.shift-mini-people{display:grid;grid-template-columns:repeat(2,minmax(0,11px));gap:1px}
-.person-mini{display:grid;place-items:center;aspect-ratio:1;border-radius:2px;color:#fff;font-size:clamp(7px,2.1vw,9px);line-height:1;font-weight:900}
+.shift-mini-people{display:flex;flex-wrap:wrap;align-items:flex-start;gap:1px}
+.person-mini{display:grid;place-items:center;flex:none;width:13px;aspect-ratio:1;border-radius:2px;color:#fff;font-size:clamp(7px,2.1vw,9px);line-height:1;font-weight:900}
 .more{font-size:8px;line-height:1;color:#4b5563;font-weight:800}
 .detail-card{margin-top:10px;padding:14px;overflow:visible}
 .detail-top{display:flex;justify-content:space-between;align-items:flex-start;gap:8px}
@@ -126,9 +123,6 @@ input{width:100%;min-width:0;border:1px solid #e2e5ea;border-radius:11px;padding
 .toast{position:fixed;z-index:40;left:10px;right:10px;bottom:calc(78px + env(safe-area-inset-bottom));display:none;background:#111827;color:#fff;border-radius:11px;padding:11px 14px;font-size:14px;white-space:normal;overflow-wrap:anywhere;line-height:1.5}
 .loading{position:fixed;inset:0;z-index:50;background:rgba(246,247,251,.82);display:none;align-items:center;justify-content:center;font-weight:900}
 .loading.show{display:flex}
-@media(max-width:480px){
-  .shift-mini-group-label{max-width:2em;text-overflow:clip;font-size:clamp(8px,2.1vw,9px)}
-}
 @media(max-width:360px){
   .day{padding-inline:2px}
   .lane{flex-basis:45vw;min-width:45vw}
@@ -485,7 +479,7 @@ function renderCalendar(){
     const groupHtml=slots.map(({label,shift})=>{
       const rows=shift ? dayRows.filter(row=>row.shiftId===shift.id) : [];
       const ids=sortIds(rows.map(row=>row.staffId)).slice(0,4);
-      if(!ids.length) return '<div class="shift-mini-group" aria-hidden="true"></div>';
+      if(!ids.length) return '';
       shown+=ids.length;
       const icons=ids.map(id=>{
         const person=pById(id);
