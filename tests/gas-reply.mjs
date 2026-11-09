@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import vm from 'node:vm';
+import {createHmac} from 'node:crypto';
 
 const code = await readFile(new URL('../GAS/程式碼.js', import.meta.url), 'utf8');
 const calendarCode = await readFile(new URL('../GAS/CalendarApi.js', import.meta.url), 'utf8');
@@ -50,11 +51,14 @@ test('agree writes exact response, notifies managers once, repeated clicks are i
   const input={lineUid:uid,id:uuid,version:1,choice:'agree',eventId:'evt'};
   const first=h.ctx.handleShiftReply_(input);
   assert.equal(first.code,'confirmed');
+  assert.equal(first.replyMessage.altText,'已同意排班｜2026-11-05 ・ 玉門');
+  assert.deepEqual(Array.from(first.replyMessage.contents.footer.contents,b=>b.action.label),['聯絡團長','調班請求','我要請假']);
   assert.equal(h.row[7],'同意');
   assert.equal(h.notices.length,1);
   assert.equal(h.notices[0].status,'同意');
   const second=h.ctx.handleShiftReply_(input);
   assert.equal(second.code,'already');
+  assert.equal(second.replyMessage.contents.footer.contents.length,3);
   assert.equal(h.notices.length,1);
 });
 
@@ -284,4 +288,83 @@ test('unauthenticated GET cannot read the roster or calendar through legacy JSON
   assert.equal(response.type,'json');
   assert.equal(JSON.parse(response.text).code,'unauthorized');
   assert.equal(JSON.parse(ctx.doGet({parameter:{}}).text).ok,true);
+});
+
+
+function followupHarness() {
+  const h=harness(), requests=[], cache=new Map(), pushes=[];
+  h.row[7]='同意';
+  const sheet={
+    getLastRow:()=>requests.length+1,
+    appendRow:row=>requests.push(Array.from(row)),
+    getRange:(row,col)=>({setValue(value){requests[row-2][col-1]=value;}})
+  };
+  h.ctx.openBook_=()=>({getSheetByName:()=>sheet});
+  h.ctx.masaluTable_=()=>({sheet,rows:requests});
+  h.ctx.CacheService={getScriptCache:()=>({get:key=>cache.get(key),put:(key,value)=>cache.set(key,value)})};
+  h.ctx.PropertiesService={getScriptProperties:()=>({getProperty:()=> 'test-secret'})};
+  h.ctx.Utilities={
+    getUuid:()=> 'ABCDEF01-1111-1111-1111-111111111111',
+    computeHmacSha256Signature:(value,key)=>createHmac('sha256',key).update(value).digest(),
+    base64EncodeWebSafe:value=>value.toString('base64url')
+  };
+  const fail=new Set();
+  h.ctx.UrlFetchApp={fetch(_url,options){
+    const body=JSON.parse(options.payload);
+    pushes.push(body);
+    return {getResponseCode:()=>fail.has(body.to)?500:200};
+  }};
+  return {...h,requests,pushes,fail,input:{lineUid:uid,id:uuid,version:1}};
+}
+
+test('leave supports type and optional note, validates owner and version, and deduplicates',()=>{
+  const h=followupHarness();
+  const run=fields=>h.ctx.handleShiftFollowup_({...h.input,...fields});
+  assert.equal(run({choice:'leave',lineUid:managerUid}).code,'wrong_user');
+  assert.equal(run({choice:'leave',version:2}).code,'expired');
+  const options=run({choice:'leave'}).quickReply.items;
+  assert.deepEqual(Array.from(options,i=>i.action.label),['事假','病假','其他']);
+  const note=run({choice:'leave_sick'});
+  assert.equal(note.quickReply.items[0].action.fillInText,'排班留言 ABCDEF01 ');
+  assert.equal(run({text:'排班留言 ABCDEF01 =not a formula'}).code,'request_sent');
+  assert.equal(h.requests[0][9],'病假');
+  assert.equal(h.requests[0][10],"'=not a formula");
+  assert.equal(h.requests[0][11],'待處理');
+  assert.match(h.pushes[0].messages[0].text,/員工甲[\s\S]*2026-11-05[\s\S]*=not a formula/);
+  assert.equal(run({choice:'leave_personal_send'}).code,'request_already');
+  assert.equal(h.requests.length,1);
+  assert.equal(h.pushes.length,1);
+  assert.equal(h.row[7],'同意');
+});
+
+test('contact and swap are independent; retry only resends to unnotified managers',()=>{
+  const h=followupHarness();
+  const manager2='U'+'c'.repeat(32);
+  const roster=h.ctx.employeeIndex_();
+  roster.A02={name:'副團長',uid:manager2};
+  h.ctx.employeeIndex_=()=>roster;
+  h.fail.add(manager2);
+  const run=choice=>h.ctx.handleShiftFollowup_({...h.input,choice});
+  assert.equal(run('contact').code,'request_saved');
+  h.fail.clear();
+  assert.equal(run('contact').code,'request_sent');
+  assert.deepEqual(h.pushes.map(p=>p.to),[managerUid,manager2,manager2]);
+  assert.equal(run('swap').code,'request_note');
+  assert.equal(run('swap_send').code,'request_sent');
+  assert.deepEqual(h.requests.map(r=>r[8]),['聯絡團長','調班請求']);
+});
+
+test('temporary staff can use their card after their UID is cleared, copied buttons are rejected',()=>{
+  const h=followupHarness();
+  h.row[2]='';
+  h.row[7]='待回覆';
+  h.row[12]='臨時員工';
+  h.row[13]=uid;
+  const result=h.ctx.handleShiftReply_({...h.input,choice:'agree'});
+  assert.equal(h.row[13],'');
+  const proof=result.replyMessage.contents.footer.contents[0].action.data.split('&proof=')[1];
+  assert.match(proof,/^[A-Za-z0-9_-]{43}$/);
+  assert.equal(h.ctx.handleShiftFollowup_({...h.input,lineUid:managerUid,choice:'contact',token:proof}).code,'wrong_user');
+  assert.equal(h.ctx.handleShiftFollowup_({...h.input,choice:'contact',token:proof}).code,'request_sent');
+  assert.ok(!JSON.stringify(h.requests).includes(uid));
 });
