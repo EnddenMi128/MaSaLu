@@ -58,9 +58,10 @@ button:disabled{opacity:.45}
 }
 .shift-title{font-size:12px;font-weight:900;color:#4b5563;margin-bottom:8px}
 .people-row{display:flex;flex-wrap:wrap;gap:8px}
-.person-wrap{margin-bottom:18px}
-.person-chip{width:44px;height:44px;border-radius:13px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:17px;font-weight:900;position:relative}
-.person-chip small{position:absolute;bottom:-17px;width:68px;text-align:center;color:#4b5563;font-size:10px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.person-chip{display:flex;align-items:center;gap:6px;min-width:0;max-width:100%;min-height:32px;padding:5px 8px;border:1px solid var(--line);border-radius:9px;background:#fff;color:var(--text);font-size:13px;font-weight:800}
+.person-chip .person-color{width:9px;height:9px;flex:0 0 9px;border-radius:3px}
+.person-chip .person-name{min-width:0;overflow-wrap:anywhere}
+.person-chip small{color:#4b5563;font-size:10px;white-space:nowrap}
 .empty{padding:18px 0 4px;color:var(--muted);font-size:13px}
 .calendar-add{display:none;margin:8px 0 0 auto;min-height:44px;padding:0 12px;border:0;border-radius:11px;background:#111827;color:#fff;font-size:13px;font-weight:900}
 .status{font-size:11px;color:var(--muted);padding:10px 2px 0;text-align:center}
@@ -133,7 +134,7 @@ input{width:100%;min-width:0;border:1px solid #e2e5ea;border-radius:11px;padding
   .lane{flex-basis:45vw;min-width:45vw}
 }
 
-.person-mini.pending,.person-chip.pending{background:#9ca3af!important;box-shadow:none}
+.person-mini.pending,.person-chip.pending .person-color{background:#9ca3af!important;box-shadow:none}
 .person-mini.pending{color:#18212f}
 #lanes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));overflow:visible;gap:7px}
 .lane{width:auto;min-width:0;max-width:none;flex:initial;padding:7px}
@@ -548,7 +549,7 @@ function renderDetail(){
           if(!p)return '';
           const row=rows.find(r=>r.staffId===id && r.shiftId===shift.id);
           const pending=row?.replyStatus!=='同意';
-          return `<div class="person-wrap"><div class="person-chip${pending?' pending':''}" style="background:${escapeHtml(p.color)}">${escapeHtml(p.short)}<small>${escapeHtml(p.name)}${pending?' · 待回覆':''}</small></div></div>`;
+          return `<div class="person-chip${pending?' pending':''}"><span class="person-color" style="background:${escapeHtml(p.color)}" aria-hidden="true"></span><span class="person-name">${escapeHtml(p.name)}</span>${pending?'<small>待回覆</small>':''}</div>`;
         }).join('')
       }</div>`;
 
