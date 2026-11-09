@@ -31,16 +31,14 @@ button:disabled{opacity:.45}
 .day:nth-child(7n){border-right:0}
 .day.other{background:#fafbfc;color:#c4c7ce}
 .day.selected{outline:2px solid #111827;outline-offset:-2px;background:#fbfbfd}
-.date-row{display:flex;align-items:center;justify-content:space-between;gap:1px}
 .num{font-size:11px;font-weight:800;line-height:15px}
 .today .num{width:17px;border-radius:5px;background:#111827;color:#fff;text-align:center}
 .minipeople{display:flex;flex-direction:column;gap:3px;margin-top:2px}
 .shift-mini-group{min-width:0}
 .shift-mini-group+.shift-mini-group{border-top:1px solid var(--line);padding-top:2px}
 .shift-mini-group-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:9px;line-height:10px;color:#545b66;font-weight:800}
-.shift-mini-people{display:flex;flex-wrap:wrap;align-items:flex-start;gap:1px}
-.person-mini{display:grid;place-items:center;flex:none;width:13px;aspect-ratio:1;border-radius:2px;color:#fff;font-size:clamp(7px,2.1vw,9px);line-height:1;font-weight:900}
-.more{font-size:8px;line-height:1;color:#4b5563;font-weight:800}
+.shift-mini-people{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:2px}
+.person-mini{display:grid;place-items:center;min-width:0;aspect-ratio:1;border-radius:2px;color:#fff;font-size:clamp(11px,3vw,14px);line-height:1;font-weight:900}
 .detail-card{margin-top:10px;padding:14px;overflow:visible}
 .detail-top{display:flex;justify-content:space-between;align-items:flex-start;gap:8px}
 .detail-title{font-size:20px;font-weight:900}
@@ -123,8 +121,12 @@ input{width:100%;min-width:0;border:1px solid #e2e5ea;border-radius:11px;padding
 .toast{position:fixed;z-index:40;left:10px;right:10px;bottom:calc(78px + env(safe-area-inset-bottom));display:none;background:#111827;color:#fff;border-radius:11px;padding:11px 14px;font-size:14px;white-space:normal;overflow-wrap:anywhere;line-height:1.5}
 .loading{position:fixed;inset:0;z-index:50;background:rgba(246,247,251,.82);display:none;align-items:center;justify-content:center;font-weight:900}
 .loading.show{display:flex}
+@media(min-width:540px){
+  .shift-mini-people{grid-template-columns:repeat(auto-fill,minmax(16px,1fr))}
+}
 @media(max-width:360px){
   .day{padding-inline:2px}
+  .shift-mini-people{grid-template-columns:repeat(2,minmax(0,1fr))}
   .lane{flex-basis:45vw;min-width:45vw}
 }
 
@@ -441,7 +443,7 @@ function calendarShiftSlots(){
     shift:workShifts.find(shift=>shift.name.startsWith(label))
   }));
   const others=workShifts.filter(shift=>!primary.some(slot=>slot.shift===shift));
-  return primary.concat(others.map(shift=>({label:shift.name,shift}))).slice(0,4);
+  return primary.filter(slot=>slot.shift).concat(others.map(shift=>({label:shift.name,shift})));
 }
 
 function scheduledWorkIds(date){
@@ -475,12 +477,10 @@ function renderCalendar(){
       +(k===keyOf(now)?' today':'');
 
     const count=dayRows.filter(row=>isWorkShift(row.shiftId)&&pById(row.staffId)).length;
-    let shown=0;
     const groupHtml=slots.map(({label,shift})=>{
-      const rows=shift ? dayRows.filter(row=>row.shiftId===shift.id) : [];
-      const ids=sortIds(rows.map(row=>row.staffId)).slice(0,4);
+      const rows=dayRows.filter(row=>row.shiftId===shift.id);
+      const ids=sortIds(rows.map(row=>row.staffId));
       if(!ids.length) return '';
-      shown+=ids.length;
       const icons=ids.map(id=>{
         const person=pById(id);
         const pending=rows.find(row=>row.staffId===id)?.replyStatus!=='同意';
@@ -492,11 +492,8 @@ function renderCalendar(){
         `<div class="shift-mini-people">${icons}</div></div>`;
     }).join('');
 
-    const hidden=count-shown;
-    cell.innerHTML=
-      `<div class="date-row"><div class="num">${d.getDate()}</div>`+
-      (hidden>0 ? `<span class="more" title="點日期查看完整名單">+${hidden}</span>` : '')+'</div>'+
-      (shown ? `<div class="minipeople">${groupHtml}</div>` : '');
+    cell.innerHTML=`<div class="num">${d.getDate()}</div>`+
+      (groupHtml ? `<div class="minipeople">${groupHtml}</div>` : '');
     cell.setAttribute('role','button');
     cell.tabIndex=0;
     cell.setAttribute('aria-label',`${k}，${count} 人次排班`);
