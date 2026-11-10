@@ -323,6 +323,8 @@ function doPost(e) {
       result = {ok: false, code: 'unauthorized', message: '拒絕存取'};
     } else if (input.kind === 'shift_reply') {
       result = handleShiftReply_(input);
+    } else if (input.kind === 'shift_followup') {
+      result = handleShiftFollowup_(input);
     } else if (input.kind === 'manager_decision') {
       result = handleManagerDecision_(input);
     } else if (input.kind === 'bind_or_message') {
@@ -475,6 +477,9 @@ function handleShiftReply_(input) {
     if (Number(row[11]) !== version) return {ok: true, code: 'expired', message: '此按鈕已失效，請以團長最新的排班通知為準。'};
     const currentStatus = String(row[7] || '');
     if (currentStatus === '同意' || currentStatus === '不同意') {
+      if (currentStatus === '同意' && choice === 'agree') {
+        return masaluAcceptedReply_('already', {id, version, date:masaluDate_(row[3]), shift:String(row[6] || '')});
+      }
       return {ok: true, code: 'already', message: '這筆排班已回覆「' + currentStatus + '」，若要修改請聯絡團長。'};
     }
     const status = choice === 'agree' ? '同意' : '不同意';
@@ -498,7 +503,175 @@ function handleShiftReply_(input) {
     safeLog_('團長通知', id, confirmed.employeeId, '失敗', String(err.message).slice(0, 200), '');
     managerNotice.failed++;
   }
+  if (confirmed.status === '同意') {
+    const token = confirmed.employeeId ? '' : masaluTemporaryFollowupToken_(id, version, uid);
+    return {...masaluAcceptedReply_('confirmed', {...confirmed, token}), managerNotice};
+  }
   return {ok: true, code: 'confirmed', message: '已收到您的排班回覆：【' + confirmed.status + '】，謝謝！', managerNotice};
+}
+
+const MASALU_LEAVE_TYPES = Object.freeze({personal:'事假', sick:'病假', other:'其他'});
+const MASALU_FOLLOWUP_HEADERS = [
+  '請求識別碼','建立時間','排班ID','通知版次','員工編號','姓名','排班日期','班別',
+  '請求類型','假別','留言','狀態','已通知團長'
+];
+
+function masaluTemporaryFollowupToken_(id, version, uid) {
+  const secret = PropertiesService.getScriptProperties().getProperty('GAS_SHARED_SECRET');
+  return Utilities.base64EncodeWebSafe(Utilities.computeHmacSha256Signature(
+    ['masalu-shift-followup', id, version, uid].join(':'), secret
+  )).replace(/=+$/, '');
+}
+
+function masaluFollowupAction_(shift, choice, label) {
+  const token = shift.token ? '&proof=' + encodeURIComponent(shift.token) : '';
+  return {type:'postback',label,displayText:label,
+    data:'action=shift_followup&id='+encodeURIComponent(shift.id)+'&v='+shift.version+'&choice='+choice+token};
+}
+
+function masaluAcceptedReply_(code, shift) {
+  const title = '已同意排班';
+  const details = [shift.date,shift.shift].filter(Boolean).join(' ・ ');
+  const button = (label, choice) => ({
+    type:'button',style:'secondary',height:'sm',action:masaluFollowupAction_(shift,choice,label)
+  });
+  return {ok:true,code,message:title,replyMessage:{
+    type:'flex',altText:title+(details?'｜'+details:''),
+    contents:{type:'bubble',
+      body:{type:'box',layout:'vertical',spacing:'sm',contents:[
+        {type:'text',text:title,weight:'bold',size:'lg',wrap:true},
+        ...(details ? [{type:'text',text:details,wrap:true,size:'sm'}] : [])
+      ]},
+      footer:{type:'box',layout:'vertical',spacing:'sm',contents:[
+        button('聯絡團長','contact'),button('調班請求','swap'),button('我要請假','leave')
+      ]}
+    }
+  }};
+}
+
+function handleShiftFollowup_(input) {
+  const uid = String(input.lineUid || '');
+  if (!validLineUid_(uid)) return {ok:true,code:'invalid',message:'無法識別 LINE 帳號。'};
+  let note = '';
+  if (input.text) {
+    const match = /^排班留言\s+([A-F0-9]{8})(?:\s+([\s\S]*))?$/i.exec(String(input.text).trim());
+    if (!match || !String(match[2] || '').trim() || match[2].trim().length > 300) {
+      return {ok:true,code:'invalid_note',message:'請在留言代碼後輸入 1 到 300 字的內容，再送出。'};
+    }
+    const saved = CacheService.getScriptCache().get('masalu:shift-note:'+uid+':'+match[1].toUpperCase());
+    if (!saved) return {ok:true,code:'expired_note',message:'留言連結已失效，請從原排班確認卡重新操作。'};
+    input = JSON.parse(saved);
+    note = match[2].trim();
+  }
+
+  const {id,version,choice} = input;
+  if (!/^[a-f0-9-]{36}$/i.test(id || '') || !Number.isSafeInteger(version) || version < 1 ||
+      !/^(contact|swap(?:_send)?|leave(?:_(?:personal|sick|other)(?:_send)?)?)$/.test(choice || '')) {
+    return {ok:true,code:'invalid',message:'請從原排班確認卡重新操作。'};
+  }
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    const sheet = shiftSheet_();
+    const rowNumber = findShiftRow_(sheet,id);
+    if (!rowNumber) return {ok:true,code:'missing',message:'這筆排班已取消或找不到。'};
+    const row = sheet.getRange(rowNumber,1,1,SHIFT_APP.SHIFT_HEADERS.length).getValues()[0];
+    const employeeId = String(row[2] || '').trim();
+    const roster = employeeIndex_();
+    const employee = roster[employeeId];
+    const owner = employeeId ? employee?.uid === uid :
+      constantTimeEqual_(String(input.token || ''),masaluTemporaryFollowupToken_(id,version,uid));
+    if (!owner) return {ok:true,code:'wrong_user',message:'僅限這筆排班的本人操作。'};
+    if (Number(row[11]) !== version || row[7] !== '同意') {
+      return {ok:true,code:'expired',message:'這筆已同意的排班有變更，請從最新通知操作。'};
+    }
+
+    const shift = {id,version,token:employeeId?'':input.token,date:masaluDate_(row[3]),
+      shift:String(row[6] || ''),employeeId,name:employee?.name || String(row[12] || '臨時人員')};
+    if (choice === 'leave') {
+      return {ok:true,code:'leave_types',message:'請選擇假別',quickReply:{items:
+        Object.entries(MASALU_LEAVE_TYPES).map(([type,label])=>({
+          type:'action',action:masaluFollowupAction_(shift,'leave_'+type,label)
+        }))
+      }};
+    }
+    const kind = choice.split('_')[0];
+    const leaveType = kind === 'leave' ? MASALU_LEAVE_TYPES[choice.split('_')[1]] : '';
+    if (kind !== 'contact' && !choice.endsWith('_send')) {
+      return masaluFollowupNotePrompt_(uid,shift,choice,leaveType);
+    }
+    return masaluSubmitFollowup_(shift,kind,leaveType,note,roster);
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function masaluFollowupNotePrompt_(uid, shift, choice, leaveType) {
+  const code = Utilities.getUuid().slice(0,8).toUpperCase();
+  const submit = choice+'_send';
+  CacheService.getScriptCache().put('masalu:shift-note:'+uid+':'+code,
+    JSON.stringify({id:shift.id,version:shift.version,choice:submit,token:shift.token}),900);
+  const prefix = '排班留言 '+code+' ';
+  return {ok:true,code:'request_note',
+    message:(leaveType?'請假｜'+leaveType:'調班請求')+'\n'+shift.date+' ・ '+shift.shift+
+      '\n可加留言或直接送出，資料會交給團長處理。'+
+      '\n如需手動輸入留言，請以「'+prefix.trim()+'」開頭，留一格再寫內容。',
+    quickReply:{items:[
+      {type:'action',action:{type:'postback',label:'加留言',data:'action=shift_note_keyboard',
+        inputOption:'openKeyboard',fillInText:prefix}},
+      {type:'action',action:masaluFollowupAction_(shift,submit,'直接送出')}
+    ]}
+  };
+}
+
+function masaluSubmitFollowup_(shift, kind, leaveType, note, roster) {
+  const label = {contact:'聯絡團長',swap:'調班請求',leave:'請假申請'}[kind];
+  const book = openBook_();
+  const sheetName = 'MaSaLu排班請求';
+  const sheet = book.getSheetByName(sheetName) || ensureSheet_(book,sheetName,MASALU_FOLLOWUP_HEADERS,false);
+  const data = masaluTable_(sheetName,MASALU_FOLLOWUP_HEADERS,book);
+  const key = [shift.id,shift.version,kind].join(':');
+  const index = data.rows.findIndex(row=>row[0]===key);
+  const saved = index < 0 ? null : data.rows[index];
+  const rowNumber = index < 0 ? sheet.getLastRow()+1 : index+2;
+  const delivered = new Set(String(saved?.[12] || '').split(',').filter(Boolean));
+  if (!saved) {
+    const safeNote = /^[=+\-@]/.test(note) ? "'"+note : note;
+    sheet.appendRow([key,new Date(),shift.id,shift.version,shift.employeeId,shift.name,
+      shift.date,shift.shift,label,leaveType,safeNote,'待處理','']);
+    SpreadsheetApp.flush();
+  }
+
+  const managerIds = ['A01','A02','A03'].filter(id=>validLineUid_(roster[id]?.uid));
+  const token = PropertiesService.getScriptProperties().getProperty('LINE_CHANNEL_ACCESS_TOKEN');
+  const storedType = saved ? saved[9] : leaveType;
+  const storedNote = saved ? saved[10] : note;
+  const text = [label,'人員：'+shift.name,'日期：'+shift.date,'班別：'+shift.shift,
+    storedType?'假別：'+storedType:'',storedNote?'留言：'+storedNote:''].filter(Boolean).join('\n');
+  let notified = false;
+  if (token) managerIds.filter(id=>!delivered.has(id)).forEach(id=>{
+    try {
+      const response = UrlFetchApp.fetch('https://api.line.me/v2/bot/message/push',{
+        method:'post',contentType:'application/json; charset=UTF-8',
+        headers:{Authorization:'Bearer '+token},
+        payload:JSON.stringify({to:roster[id].uid,messages:[{type:'text',text}]}),
+        muteHttpExceptions:true
+      });
+      if (response.getResponseCode()>=200 && response.getResponseCode()<300) {
+        delivered.add(id);
+        sheet.getRange(rowNumber,13).setValue([...delivered].join(','));
+        SpreadsheetApp.flush();
+        notified = true;
+      }
+    } catch (err) {
+      console.error('排班請求通知失敗：'+String(err.message).slice(0,120));
+    }
+  });
+  if (!managerIds.length || managerIds.some(id=>!delivered.has(id))) {
+    return {ok:true,code:'request_saved',message:label+'已登記。團長通知尚未全部送達，可再次點選重試。'};
+  }
+  if (saved && !notified) return {ok:true,code:'request_already',message:label+'已送出，請等候團長回覆。'};
+  return {ok:true,code:'request_sent',message:label+'已送出，請等候團長回覆。'};
 }
 
 /** Send each confirmed reply to A01–A03. Their LINE UIDs are read from the existing roster. */
