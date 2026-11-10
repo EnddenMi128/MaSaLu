@@ -185,15 +185,13 @@ async function handleEvent(event, env, ctx) {
       return;
     }
     if (/^排班留言(?:\s|$)/.test(text)) {
-      const result = await sendToGas({kind:'shift_followup',lineUid,eventId,text},env);
-      await replyLineSafe(event.replyToken,result.message,env,result.quickReply);
+      await handleFollowupEvent(event,{kind:'shift_followup',lineUid,eventId:eventId || event.message.id || '',text},env);
       return;
     }
     if (!text.startsWith('綁定') && !/^[^\r\n]+[A-Za-z0-9]{12}$/u.test(text)) {
       if (!text) return;
-      const result=await sendToGas({kind:'contact_message',lineUid,text,timestamp:event.timestamp,
+      await handleFollowupEvent(event,{kind:'contact_message',lineUid,text,timestamp:event.timestamp,
         eventId:eventId || event.message.id || ''},env);
-      await replyLineSafe(event.replyToken,result.message,env,result.quickReply);
       return;
     }
     const confirmation = handleBindingMessage(event.replyToken, lineUid, text, eventId, env);
@@ -209,13 +207,23 @@ async function handleEvent(event, env, ctx) {
     const manager = parsed || followup || swap ? null : parseManagerPostbackData(data);
     if (!parsed && !followup && !swap && !manager) return;
     const kind = parsed ? 'shift_reply' : followup ? 'shift_followup' : swap ? 'swap_response' : 'manager_decision';
-    const result = await sendToGas({kind, lineUid, eventId, timestamp:event.timestamp, ...(parsed || followup || swap || manager)}, env);
+    const payload = {kind, lineUid, eventId, timestamp:event.timestamp, ...(parsed || followup || swap || manager)};
+    if (followup || swap) return handleFollowupEvent(event,payload,env);
+    const result = await sendToGas(payload,env);
     const replied = await replyLineSafe(event.replyToken,result.message,env,result.quickReply,result.replyMessage);
     if (!replied && kind==='shift_reply' && result.serial && result.message) {
       // A rejected Flex can still deliver the receipt and its three actions as a quick reply.
       if (result.replyMessage && await replyLineSafe(event.replyToken,result.message,env,result.quickReply)) return;
       throw new Error('Employee shift receipt not delivered');
     }
+  }
+}
+
+async function handleFollowupEvent(event, payload, env) {
+  const result = await sendToGas(payload,env);
+  if (result.delivered || !result.message) return;
+  if (!await replyLineSafe(event.replyToken,result.message,env,result.quickReply)) {
+    throw new Error('LINE follow-up reply not delivered: '+result.code);
   }
 }
 

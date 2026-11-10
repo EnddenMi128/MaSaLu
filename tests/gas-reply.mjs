@@ -369,6 +369,24 @@ function followupHarness() {
   return {...h,requests,pushes,fail,input:{lineUid:uid,id:uuid,version:1}};
 }
 
+test('the three approved-card actions deliver their prompts to the employee through GAS',()=>{
+  const h=followupHarness();
+  h.ctx.masaluDate_=value=>value instanceof Date?'2026-11-05':String(value);
+  h.ctx.ContentService={MimeType:{JSON:'json'},createTextOutput:text=>({setMimeType:()=>JSON.parse(text)})};
+  const run=(choice,eventId)=>h.ctx.doPost({postData:{contents:JSON.stringify({
+    ...h.input,secret:'test-secret',kind:'shift_followup',choice,eventId,timestamp:123
+  })}});
+  assert.equal(run('contact','contact-event').delivered,true);
+  assert.equal(run('swap','swap-event').delivered,true);
+  assert.equal(run('leave','leave-event').delivered,true);
+  assert.deepEqual(h.pushes.map(push=>push.to),[uid,uid,uid]);
+  assert.deepEqual(h.pushes.map(push=>push.messages[0].quickReply.items[0].action.label),['輸入訊息','選擇日期','事假']);
+  h.fail.add(uid);
+  const fallback=run('contact','contact-event');
+  assert.equal(fallback.code,'contact_open');
+  assert.equal(fallback.quickReply.items[1].action.label,'結束對話');
+});
+
 test('leave supports type and optional note, validates owner and version, and deduplicates',()=>{
   const h=followupHarness();
   const run=fields=>h.ctx.handleShiftFollowup_({...h.input,...fields});

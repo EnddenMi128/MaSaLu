@@ -244,6 +244,38 @@ test('a rejected receipt card falls back to text with the same action buttons',a
   } finally {globalThis.fetch=old;}
 });
 
+test('approved-card actions use the GAS delivery and signal retry when both paths fail',async()=>{
+  const id='11111111-1111-1111-1111-111111111111';
+  const source={type:'user',userId:'U'+'a'.repeat(32)};
+  const old=globalThis.fetch,calls=[];
+  let replyStatus=200;
+  globalThis.fetch=async(url,init)=>{
+    const data=JSON.parse(init.body);
+    calls.push(data);
+    if(url!==env.GAS_WEB_APP_URL) return new Response('{}',{status:replyStatus});
+    return Response.json(data.choice==='contact' ? {ok:true,code:'contact_open',delivered:true}
+      : {ok:true,code:data.choice,message:'下一步',quickReply:{items:[]}});
+  };
+  const click=choice=>{
+    const body=JSON.stringify({events:[{type:'postback',source,replyToken:'reply',webhookEventId:'evt-'+choice,
+      postback:{data:'action=shift_followup&id='+id+'&v=1&choice='+choice}}]});
+    const signature=createHmac('sha256',env.LINE_CHANNEL_SECRET).update(body).digest('base64');
+    return worker.fetch(new Request('https://worker.example/webhook',{
+      method:'POST',body,headers:{'x-line-signature':signature}
+    }),env);
+  };
+  try {
+    assert.equal((await click('contact')).status,200);
+    assert.equal(calls.length,1);
+    assert.equal(calls[0].eventId,'evt-contact');
+    assert.equal((await click('swap')).status,200);
+    assert.equal(calls[2].messages[0].text,'下一步');
+    replyStatus=401;
+    assert.equal((await click('leave')).status,502);
+    assert.deepEqual(calls.filter(call=>call.kind).map(call=>call.choice),['contact','swap','leave']);
+  } finally {globalThis.fetch=old;}
+});
+
 test('signed contact text, close button, date picker and swap consent reach the correct GAS handlers',async()=>{
   const id='11111111-1111-1111-1111-111111111111';
   const source={type:'user',userId:'U'+'a'.repeat(32)};

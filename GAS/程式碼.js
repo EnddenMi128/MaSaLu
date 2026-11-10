@@ -342,9 +342,9 @@ function doPost(e) {
     } else if (input.kind === 'shift_reply') {
       result = handleShiftReply_(input);
     } else if (input.kind === 'shift_followup' || input.kind === 'contact_message') {
-      result = handleShiftFollowup_(input);
+      result = masaluDeliverFollowup_(input,handleShiftFollowup_(input));
     } else if (input.kind === 'swap_response') {
-      result = masaluSwapResponse_(input);
+      result = masaluDeliverFollowup_(input,masaluSwapResponse_(input));
     } else if (input.kind === 'manager_decision') {
       result = handleManagerDecision_(input);
     } else if (input.kind === 'bind_or_message') {
@@ -585,12 +585,20 @@ function masaluPushWorkflowMessage_(uid, message, identity) {
       });
       const status=response.getResponseCode();
       if (status>=200 && status<300 || status===409 && masaluLineRetryAccepted_(response)) return true;
+      console.error('LINE 推播失敗：HTTP '+status);
       if (status<500) return false;
     } catch (err) {
       console.error('LINE 轉送失敗：'+String(err.message).slice(0,120));
     }
   }
   return false;
+}
+
+function masaluDeliverFollowup_(input, result) {
+  if (!result.message || !input.eventId || !validLineUid_(input.lineUid)) return result;
+  const message = {type:'text',text:result.message,...(result.quickReply?{quickReply:result.quickReply}:{})};
+  if (!masaluPushWorkflowMessage_(input.lineUid,message,'shift-followup:'+input.eventId)) return result;
+  return {ok:true,code:result.code,delivered:true};
 }
 
 function masaluDeliverShiftReceipt_(uid, receipt, eventId) {
@@ -683,11 +691,13 @@ function handleShiftFollowup_(input) {
     const cache = CacheService.getScriptCache();
     if (input.kind === 'contact_message' || input.choice === 'contact_end') {
       const chat = JSON.parse(cache.get(chatKey) || 'null');
-      if (!chat || chat.ended || eventTime<chat.startedAt) return {ok:true,code:'ignored'};
+      if (!chat || eventTime<chat.startedAt) return {ok:true,code:'ignored'};
       if (input.choice === 'contact_end' && (input.id!==chat.id || input.version!==chat.version))
         return {ok:true,code:'ignored'};
+      if (chat.ended) return eventId && eventId===chat.endEventId
+        ? {ok:true,code:'contact_ended',message:'已結束對話。'} : {ok:true,code:'ignored'};
       if (input.choice === 'contact_end' || chatText === '結束對話') {
-        cache.put(chatKey,JSON.stringify({...chat,startedAt:eventTime,ended:true}),1800);
+        cache.put(chatKey,JSON.stringify({...chat,startedAt:eventTime,ended:true,endEventId:eventId}),1800);
         return {ok:true,code:'contact_ended',message:'已結束對話。'};
       }
       input = {...chat,choice:'contact_send'};
@@ -715,12 +725,15 @@ function handleShiftFollowup_(input) {
       shift:String(row[6] || ''),employeeId,name:employee?.name || String(row[12] || '臨時人員')};
     if (choice === 'contact') {
       const previous = JSON.parse(cache.get(chatKey) || 'null');
-      if (previous && eventTime <= previous.startedAt) return {ok:true,code:'ignored'};
-      cache.put(chatKey,JSON.stringify({id,version,token:shift.token,startedAt:eventTime}),1800);
+      if (previous && eventTime <= previous.startedAt) {
+        if (previous.ended || !eventId || eventId!==previous.startEventId) return {ok:true,code:'ignored'};
+      } else {
+        cache.put(chatKey,JSON.stringify({id,version,token:shift.token,startedAt:eventTime,startEventId:eventId}),1800);
+      }
       return masaluContactReply_(shift,'contact_open','請直接輸入文字，訊息會轉送給 A01～A03。');
     }
     if (choice === 'contact_send') {
-      cache.put(chatKey,JSON.stringify({id,version,token:shift.token,startedAt:input.startedAt}),1800);
+      cache.put(chatKey,JSON.stringify({id,version,token:shift.token,startedAt:input.startedAt,startEventId:input.startEventId}),1800);
       if (!chatText || chatText.length>4000 || !eventId)
         return masaluContactReply_(shift,'contact_invalid','請輸入 1 到 4000 字的訊息後再送出。');
       const managerUids = ['A01','A02','A03'].map(id=>roster[id]?.uid);
