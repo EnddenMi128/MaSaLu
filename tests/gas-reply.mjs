@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import vm from 'node:vm';
-import {createHmac} from 'node:crypto';
+import {createHash,createHmac} from 'node:crypto';
 
 const code = await readFile(new URL('../GAS/程式碼.js', import.meta.url), 'utf8');
 const calendarCode = await readFile(new URL('../GAS/CalendarApi.js', import.meta.url), 'utf8');
@@ -12,12 +12,14 @@ const managerUid = 'U'+'b'.repeat(32);
 
 function harness() {
   const row = [false,uuid,'A04','2026-11-05','','','玉門','待回覆','','已發送','',1,'','','','',''];
-  const logs=[], notices=[];
+  const logs=[], notices=[], serialRows=[];
   const sheet = {
+    getLastRow:()=>2,
     getRange(r,c,n,m) {
       assert.equal(r,2);
       return {
         getValues:()=>[row.slice(c-1,c-1+(m||1))],
+        getDisplayValues:()=>[row.slice(c-1,c-1+(m||1)).map(String)],
         setValues(v){ for(let i=0;i<v[0].length;i++)row[c-1+i]=v[0][i]; },
         setValue(v){row[c-1]=v;},
         clearContent(){row[c-1]='';}
@@ -28,7 +30,7 @@ function harness() {
     console,
     Date,
     SHIFT_APP:null,
-    LockService:{getScriptLock:()=>({waitLock(){},releaseLock(){}})},
+    LockService:{getScriptLock:()=>({waitLock(){},tryLock(){return true;},releaseLock(){}})},
     SpreadsheetApp:{flush(){}},
     PropertiesService:{getScriptProperties:()=>({getProperty:()=>''})},
     Utilities:{},
@@ -37,13 +39,16 @@ function harness() {
   vm.createContext(ctx);
   vm.runInContext(code,ctx);
   vm.runInContext(calendarCode,ctx);
+  const ledger={getDataRange:()=>({getValues:()=>[vm.runInContext('MASALU_SERIAL_HEADERS',ctx),...serialRows]}),
+    appendRow:values=>serialRows.push(Array.from(values))};
+  ctx.openBook_=()=>({getSheetByName:name=>name==='MaSaLu流水號'?ledger:null});
   ctx.shiftSheet_=()=>sheet;
   ctx.findShiftRow_=()=>2;
   ctx.employeeIndex_=()=>({A04:{name:'員工甲',uid},A01:{name:'團長',uid:managerUid}});
   ctx.masaluDate_=x=>String(x);
   ctx.safeLog_=(...items)=>logs.push(items);
   ctx.masaluNotifyManagers_=x=>{notices.push(x);return {sent:1,failed:0};};
-  return {ctx,row,logs,notices};
+  return {ctx,row,logs,notices,serialRows,ledger};
 }
 
 test('agree writes exact response, notifies managers once, repeated clicks are idempotent',()=>{
@@ -51,6 +56,8 @@ test('agree writes exact response, notifies managers once, repeated clicks are i
   const input={lineUid:uid,id:uuid,version:1,choice:'agree',eventId:'evt'};
   const first=h.ctx.handleShiftReply_(input);
   assert.equal(first.code,'confirmed');
+  assert.equal(first.serial,'A-000001');
+  assert.match(first.message,/流水號：A-000001/);
   assert.equal(first.replyMessage.altText,'已同意排班｜2026-11-05 ・ 玉門');
   assert.deepEqual(Array.from(first.replyMessage.contents.footer.contents,b=>b.action.label),['聯絡團長','調班請求','我要請假']);
   assert.equal(h.row[7],'同意');
@@ -58,6 +65,8 @@ test('agree writes exact response, notifies managers once, repeated clicks are i
   assert.equal(h.notices[0].status,'同意');
   const second=h.ctx.handleShiftReply_(input);
   assert.equal(second.code,'already');
+  assert.equal(second.serial,first.serial);
+  assert.equal(h.serialRows.length,1);
   assert.equal(second.replyMessage.contents.footer.contents.length,3);
   assert.equal(h.notices.length,1);
 });
@@ -70,6 +79,8 @@ test('disagree persists original row with different status, only owner may respo
   const result=h.ctx.handleShiftReply_({lineUid:uid,id:uuid,version:1,choice:'disagree'});
   assert.equal(result.code,'confirmed');
   assert.equal(h.row[7],'不同意');
+  assert.equal(result.serial,'D-000001');
+  assert.match(result.message,/流水號：D-000001/);
   assert.equal(h.notices.length,1);
   assert.equal(h.notices[0].status,'不同意');
 });
@@ -299,8 +310,9 @@ function followupHarness() {
     appendRow:row=>requests.push(Array.from(row)),
     getRange:(row,col)=>({setValue(value){requests[row-2][col-1]=value;}})
   };
-  h.ctx.openBook_=()=>({getSheetByName:()=>sheet});
-  h.ctx.masaluTable_=()=>({sheet,rows:requests});
+  const readTable=h.ctx.masaluTable_;
+  h.ctx.openBook_=()=>({getSheetByName:name=>name==='MaSaLu流水號'?h.ledger:sheet});
+  h.ctx.masaluTable_=(name,headers,book)=>name==='MaSaLu流水號'?readTable(name,headers,book):{sheet,rows:requests};
   h.ctx.CacheService={getScriptCache:()=>({get:key=>cache.get(key),put:(key,value)=>cache.set(key,value)})};
   h.ctx.PropertiesService={getScriptProperties:()=>({getProperty:()=> 'test-secret'})};
   h.ctx.Utilities={
@@ -326,12 +338,16 @@ test('leave supports type and optional note, validates owner and version, and de
   assert.deepEqual(Array.from(options,i=>i.action.label),['事假','病假','其他']);
   const note=run({choice:'leave_sick'});
   assert.equal(note.quickReply.items[0].action.fillInText,'排班留言 ABCDEF01 ');
-  assert.equal(run({text:'排班留言 ABCDEF01 =not a formula'}).code,'request_sent');
+  const submitted=run({text:'排班留言 ABCDEF01 =not a formula'});
+  assert.equal(submitted.code,'request_sent');
+  assert.match(submitted.message,/流水號：L-000001/);
   assert.equal(h.requests[0][9],'病假');
   assert.equal(h.requests[0][10],"'=not a formula");
   assert.equal(h.requests[0][11],'待處理');
   assert.match(h.pushes[0].messages[0].text,/員工甲[\s\S]*2026-11-05[\s\S]*=not a formula/);
-  assert.equal(run({choice:'leave_personal_send'}).code,'request_already');
+  const repeat=run({choice:'leave_personal_send'});
+  assert.equal(repeat.code,'request_already');
+  assert.equal(repeat.serial,submitted.serial);
   assert.equal(h.requests.length,1);
   assert.equal(h.pushes.length,1);
   assert.equal(h.row[7],'同意');
@@ -360,6 +376,7 @@ test('temporary staff can use their card after their UID is cleared, copied butt
   h.row[7]='待回覆';
   h.row[12]='臨時員工';
   h.row[13]=uid;
+  h.ctx.masaluDeliverShiftReceipt_=()=>false;
   const result=h.ctx.handleShiftReply_({...h.input,choice:'agree'});
   assert.equal(h.row[13],'');
   const proof=result.replyMessage.contents.footer.contents[0].action.data.split('&proof=')[1];
@@ -367,4 +384,86 @@ test('temporary staff can use their card after their UID is cleared, copied butt
   assert.equal(h.ctx.handleShiftFollowup_({...h.input,lineUid:managerUid,choice:'contact',token:proof}).code,'wrong_user');
   assert.equal(h.ctx.handleShiftFollowup_({...h.input,choice:'contact',token:proof}).code,'request_sent');
   assert.ok(!JSON.stringify(h.requests).includes(uid));
+});
+
+
+test('employee receipt is sent to the actual employee before the separate manager notice',()=>{
+  const h=harness(), deliveries=[];
+  h.ctx.PropertiesService={getScriptProperties:()=>({getProperty:()=> 'test-token'})};
+  h.ctx.Utilities={
+    DigestAlgorithm:{SHA_256:'sha256'},Charset:{UTF_8:'utf8'},
+    computeDigest:(algorithm,value)=>Array.from(createHash(algorithm).update(value).digest())
+  };
+  h.ctx.UrlFetchApp={fetch(_url,options){
+    deliveries.push({body:JSON.parse(options.payload),key:options.headers['X-Line-Retry-Key']});
+    return deliveries.length===1?{getResponseCode:()=>200}:
+      {getResponseCode:()=>409,getAllHeaders:()=>({'x-line-accepted-request-id':'existing'})};
+  }};
+  h.ctx.masaluNotifyManagers_=()=>{
+    assert.equal(deliveries.length,1);
+    return {sent:1,failed:0};
+  };
+  const input={id:uuid,version:1,choice:'agree',lineUid:uid,eventId:'line-event'};
+  const result=h.ctx.handleShiftReply_(input);
+  assert.equal(result.serial,'A-000001');
+  assert.equal(result.message,undefined);
+  assert.equal(deliveries[0].body.to,uid);
+  assert.equal(deliveries[0].body.messages[0].type,'flex');
+  const repeated=h.ctx.handleShiftReply_(input);
+  assert.equal(repeated.message,undefined);
+  assert.equal(deliveries[0].key,deliveries[1].key);
+});
+
+test('a manager can resend a declined shift once, failed delivery preserves decline and a new answer gets a new serial',()=>{
+  const h=harness(), sends=[];
+  h.ctx.PropertiesService={getScriptProperties:()=>({getProperty:()=> 'test-token'})};
+  h.ctx.Utilities={
+    DigestAlgorithm:{SHA_256:'sha256'},Charset:{UTF_8:'utf8'},
+    computeDigest:(algorithm,value)=>Array.from(createHash(algorithm).update(value).digest())
+  };
+  h.ctx.masaluDeliverShiftReceipt_=()=>false;
+  const response={lineUid:uid,id:uuid,version:1,choice:'disagree'};
+  assert.equal(h.ctx.handleShiftReply_(response).serial,'D-000001');
+  assert.equal(h.ctx.handleShiftReply_({...response,choice:'agree'}).code,'already');
+  h.row[16]='原備註｜[管理已略過]';
+  const resend={lineUid:managerUid,id:uuid,version:1,decision:'resend'};
+  assert.equal(h.ctx.handleManagerDecision_({...resend,lineUid:uid}).code,'unauthorized');
+  h.row[16]+='[替補ID:22222222-2222-2222-2222-222222222222]';
+  assert.equal(h.ctx.handleManagerDecision_(resend).code,'replacement_exists');
+  h.row[16]='原備註｜[管理已略過]';
+  h.ctx.UrlFetchApp={fetch(_url,options){
+    sends.push(options);
+    return {getResponseCode:()=>sends.length===1?500:200,getContentText:()=>''};
+  }};
+  assert.equal(h.ctx.handleManagerDecision_(resend).code,'failed');
+  assert.equal(h.row[7],'不同意');
+  assert.equal(h.row[11],1);
+  assert.equal(h.ctx.handleManagerDecision_(resend).code,'sent');
+  assert.equal(sends[0].headers['X-Line-Retry-Key'],sends[1].headers['X-Line-Retry-Key']);
+  const card=JSON.parse(sends[1].payload).messages[0];
+  assert.match(card.contents.footer.contents[0].action.data,/v=2&choice=agree$/);
+  assert.equal(h.row[7],'待回覆');
+  assert.equal(h.row[16],'原備註');
+  assert.equal(h.ctx.handleManagerDecision_(resend).code,'expired');
+  assert.equal(h.ctx.handleShiftReply_(response).code,'expired');
+  assert.equal(h.ctx.handleShiftReply_({...response,version:2}).serial,'D-000002');
+  assert.equal(h.serialRows.length,2);
+});
+
+
+test('LINE rejects the rich receipt, so GAS sends the same serial and buttons as text',()=>{
+  const h=harness(), messages=[];
+  h.ctx.PropertiesService={getScriptProperties:()=>({getProperty:()=> 'test-token'})};
+  h.ctx.masaluLineRetryKey_=value=>value;
+  h.ctx.UrlFetchApp={fetch(_url,options){
+    const body=JSON.parse(options.payload);
+    assert.equal(body.to,uid);
+    messages.push(body.messages[0]);
+    return {getResponseCode:()=>messages.length===1?400:200};
+  }};
+  const result=h.ctx.handleShiftReply_({id:uuid,version:1,choice:'agree',lineUid:uid,eventId:'event'});
+  assert.equal(result.message,undefined);
+  assert.equal(messages[0].type,'flex');
+  assert.match(messages[1].text,/流水號：A-000001/);
+  assert.deepEqual(messages[1].quickReply.items.map(item=>item.action.label),['聯絡團長','調班請求','我要請假']);
 });

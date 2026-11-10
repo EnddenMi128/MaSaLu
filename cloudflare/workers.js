@@ -117,7 +117,7 @@ export function parseManagerPostbackData(data) {
   const id=qs.get('id'),version=Number(qs.get('v')),decision=qs.get('decision');
   if (qs.get('action') !== 'manager_shift' ||
       !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id || '') ||
-      !Number.isSafeInteger(version) || version < 1 || !['skip','replace','select','cancel'].includes(decision)) return null;
+      !Number.isSafeInteger(version) || version < 1 || !['skip','replace','select','cancel','resend'].includes(decision)) return null;
   if (decision==='select') {
     const staffId=qs.get('staff');
     if (!staffId) return null;
@@ -178,7 +178,12 @@ async function handleEvent(event, env, ctx) {
     if (!parsed && !followup && !manager) return;
     const kind = parsed ? 'shift_reply' : followup ? 'shift_followup' : 'manager_decision';
     const result = await sendToGas({kind, lineUid, eventId, ...(parsed || followup || manager)}, env);
-    await replyLineSafe(event.replyToken, result.message, env, result.quickReply, result.replyMessage);
+    const replied = await replyLineSafe(event.replyToken,result.message,env,result.quickReply,result.replyMessage);
+    if (!replied && kind==='shift_reply' && result.serial && result.message) {
+      // A rejected Flex can still deliver the receipt and its three actions as a quick reply.
+      if (result.replyMessage && await replyLineSafe(event.replyToken,result.message,env,result.quickReply)) return;
+      throw new Error('Employee shift receipt not delivered');
+    }
   }
 }
 

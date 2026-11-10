@@ -80,6 +80,7 @@ test('employee and manager postback actions stay distinct', () => {
   assert.deepEqual(workerModule.parsePostbackData('action=shift_reply&id='+id+'&v=2&choice=agree'), {id,version:2,choice:'agree'});
   assert.equal(workerModule.parsePostbackData('action=manager_shift&id='+id+'&v=2&decision=skip'), null);
   assert.deepEqual(workerModule.parseManagerPostbackData('action=manager_shift&id='+id+'&v=2&decision=replace'), {id,version:2,decision:'replace'});
+  assert.deepEqual(workerModule.parseManagerPostbackData('action=manager_shift&id='+id+'&v=2&decision=resend'), {id,version:2,decision:'resend'});
   assert.equal(workerModule.parseManagerPostbackData('action=manager_shift&id='+id+'&v=2&decision=delete'), null);
 });
 
@@ -202,5 +203,29 @@ test('signed acceptance preserves the Flex card and follow-ups are routed to GAS
     assert.equal(calls[2].choice,'leave_sick');
     assert.equal(calls[4].kind,'shift_followup');
     assert.equal(calls[4].text,'排班留言 ABCDEF01 測試');
+  } finally {globalThis.fetch=old;}
+});
+
+
+test('a rejected receipt card falls back to text with the same action buttons',async()=>{
+  const id='11111111-1111-1111-1111-111111111111';
+  const source={type:'user',userId:'U'+'a'.repeat(32)};
+  const body=JSON.stringify({events:[{type:'postback',source,replyToken:'reply',
+    postback:{data:'action=shift_reply&id='+id+'&v=1&choice=agree'}}]});
+  const quickReply={items:[{type:'action',action:{type:'postback',label:'我要請假',data:'test'}}]};
+  const old=globalThis.fetch,replies=[];
+  globalThis.fetch=async(url,init)=>{
+    if(url===env.GAS_WEB_APP_URL) return new Response(JSON.stringify({ok:true,serial:'A-000001',
+      message:'已同意排班\n流水號：A-000001',quickReply,replyMessage:{type:'flex'}}));
+    replies.push(JSON.parse(init.body).messages[0]);
+    return new Response('{}',{status:replies.length===1?400:200});
+  };
+  try {
+    const signature=createHmac('sha256',env.LINE_CHANNEL_SECRET).update(body).digest('base64');
+    const response=await worker.fetch(new Request('https://worker.example/webhook',{
+      method:'POST',body,headers:{'x-line-signature':signature}
+    }),env);
+    assert.equal(response.status,200);
+    assert.deepEqual(replies[1],{type:'text',text:'已同意排班\n流水號：A-000001',quickReply});
   } finally {globalThis.fetch=old;}
 });

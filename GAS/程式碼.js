@@ -191,16 +191,27 @@ function createTemporaryShiftFromSelected() {
   show_('已新增第 ' + targetRow + ' 列臨時排班（尚未發送）。\n請檢查新列，再按「發送選取排班」或「發送已勾選排班」。\n這個 UID 不會進入「員工名單」。');
 }
 
-function sendShiftRow_(rowNumber, force, shiftId) {
+function sendShiftRow_(rowNumber, force, shiftId, declinedVersion) {
   const lock = LockService.getScriptLock();
   if (!lock.tryLock(20000)) return {code: 'failed', message: '系統忙碌，請稍後再試。'};
   try {
     const sheet = shiftSheet_();
     if (shiftId) {
       rowNumber = findShiftRow_(sheet, shiftId);
-      if (!rowNumber) return {code:'missing',message:'替補排班已不存在。'};
+      if (!rowNumber) return {code:'missing',message:'排班已不存在。'};
     }
     const current = sheet.getRange(rowNumber, 1, 1, SHIFT_APP.SHIFT_HEADERS.length).getValues()[0];
+    if (declinedVersion !== undefined && (Number(current[11]) !== declinedVersion || current[7] !== '不同意')) {
+      return {code:'expired',message:'這筆通知已有更新，請使用最新排班。'};
+    }
+    const declinedResend = force && current[7] === '不同意';
+    const oldNote = String(current[16] || '');
+    if (declinedResend) {
+      const sourceMarker = '替補來源：'+String(current[1] || '');
+      const hasReplacement = /\[替補ID:[a-f0-9-]{36}\]/i.test(oldNote) ||
+        sheet.getRange(2,17,sheet.getLastRow()-1,1).getValues().some(row=>String(row[0] || '')===sourceMarker);
+      if (hasReplacement) return {code:'replacement_exists',message:'這筆排班已安排替補，請先在月曆確認人員。'};
+    }
     const display = sheet.getRange(rowNumber, 1, 1, SHIFT_APP.SHIFT_HEADERS.length).getDisplayValues()[0];
     if (!force && current[9] === '已發送') return {code: 'skipped', message: '第 ' + rowNumber + ' 列已發送；如需再通知請使用「重新發送」。'};
     if (!force && ['同意', '不同意'].includes(String(current[7]))) return {code: 'skipped', message: '第 ' + rowNumber + ' 列已有回覆；如需重發請使用「重新發送」。'};
@@ -212,25 +223,32 @@ function sendShiftRow_(rowNumber, force, shiftId) {
     if (!id) { id = Utilities.getUuid(); sheet.getRange(rowNumber, 2).setValue(id); }
     if (!/^[a-f0-9-]{36}$/i.test(id)) throw new Error('排班ID 格式不正確：' + id);
     const version = (Number(current[11]) || 0) + 1;
+    const message = buildShiftFlex_(id,version,recipient.name,info);
+    const retryKey = declinedResend ? masaluLineRetryKey_('shift-resend:'+id+':'+version+':'+recipient.uid) : '';
     sheet.getRange(rowNumber, 8, 1, 5).setValues([['待回覆', '', '發送中', '', version]]);
     sheet.getRange(rowNumber, 16).clearContent();
     SpreadsheetApp.flush();
-    const message = buildShiftFlex_(id, version, recipient.name, info);
     try {
       const http = UrlFetchApp.fetch('https://api.line.me/v2/bot/message/push', {
         method: 'post',
         contentType: 'application/json; charset=UTF-8',
-        headers: {Authorization: 'Bearer ' + token},
+        headers: {Authorization:'Bearer '+token,...(retryKey?{'X-Line-Retry-Key':retryKey}:{})},
         payload: JSON.stringify({to: recipient.uid, messages: [message]}),
         muteHttpExceptions: true
       });
       const status = http.getResponseCode();
-      if (status < 200 || status >= 300) throw new Error('LINE HTTP ' + status + '：' + http.getContentText().slice(0, 250));
+      if (!(status>=200 && status<300 || (retryKey && status===409 && masaluLineRetryAccepted_(http)))) {
+        throw new Error('LINE HTTP '+status+'：'+http.getContentText().slice(0,250));
+      }
+      if (declinedResend && oldNote.includes('[管理已略過]')) {
+        sheet.getRange(rowNumber,17).setValue(oldNote.replace(/(?:｜)?\[管理已略過\]/g,''));
+      }
       sheet.getRange(rowNumber, 10, 1, 2).setValues([['已發送', new Date()]]);
       safeLog_('發送', id, String(current[2] || ''), '成功', recipient.name, '');
       return {code: 'sent', message: '第 ' + rowNumber + ' 列已成功向 LINE API 提交通知：' + recipient.name + '。（不代表對方已讀）'};
     } catch (err) {
-      sheet.getRange(rowNumber, 10).setValue('發送失敗');
+      if (declinedResend) sheet.getRange(rowNumber,8,1,5).setValues([current.slice(7,12)]);
+      else sheet.getRange(rowNumber,10).setValue('發送失敗');
       sheet.getRange(rowNumber, 16).setValue(String(err.message).slice(0, 450));
       safeLog_('發送', id, String(current[2] || ''), '失敗', String(err.message).slice(0, 200), '');
       return {code: 'failed', message: '第 ' + rowNumber + ' 列發送失敗：' + err.message};
@@ -452,62 +470,127 @@ function masaluNotifyCancellations_(delta) {
   return summary;
 }
 
+const MASALU_SERIALS = Object.freeze({agree:'A',disagree:'D',leave:'L'});
+const MASALU_SERIAL_SHEET = 'MaSaLu流水號';
+const MASALU_SERIAL_HEADERS = ['操作鍵','流水號','建立時間','排班ID','通知版次','員工編號','日期','班別','臨時驗證'];
+
+function masaluSerial_(action, shift, create=true) {
+  const book = openBook_();
+  const sheet = book.getSheetByName(MASALU_SERIAL_SHEET) ||
+    (create ? ensureSheet_(book,MASALU_SERIAL_SHEET,MASALU_SERIAL_HEADERS,false) : null);
+  if (!sheet) return null;
+  const data = masaluTable_(MASALU_SERIAL_SHEET,MASALU_SERIAL_HEADERS,book);
+  const key = [shift.id,shift.version,action].join(':');
+  const existing = data.rows.find(row=>row[0]===key);
+  if (existing) return {serial:String(existing[1]),proof:String(existing[8] || '')};
+  if (!create) return null;
+  const prefix = MASALU_SERIALS[action]+'-';
+  const last = data.rows.reduce((max,row)=>{
+    const serial = String(row[1] || '');
+    return serial.startsWith(prefix) ? Math.max(max,Number(serial.slice(prefix.length)) || 0) : max;
+  },0);
+  const serial = prefix+String(last+1).padStart(6,'0');
+  sheet.appendRow([key,serial,new Date(),shift.id,shift.version,shift.employeeId,
+    shift.date,shift.shift,shift.proof || '']);
+  SpreadsheetApp.flush();
+  return {serial,proof:shift.proof || ''};
+}
+
 function handleShiftReply_(input) {
   const uid = String(input.lineUid || '');
   const id = String(input.id || '');
   const version = Number(input.version);
   const choice = String(input.choice || '');
   if (!validLineUid_(uid) || !/^[a-f0-9-]{36}$/i.test(id) || !Number.isSafeInteger(version) || version < 1 || !['agree', 'disagree'].includes(choice)) {
-    return {ok: true, code: 'invalid', message: '這張通知格式錯誤，請聯絡團長重新發送。'};
+    return {ok:true,code:'invalid',message:'這張通知格式錯誤，請聯絡團長重新發送。'};
   }
+  const status = choice === 'agree' ? '同意' : '不同意';
   const lock = LockService.getScriptLock();
   lock.waitLock(20000);
-  let confirmed;
+  let confirmed, repeated;
   try {
     const sheet = shiftSheet_();
-    const rowNumber = findShiftRow_(sheet, id);
-    if (!rowNumber) return {ok: true, code: 'missing', message: '找不到這筆排班，請聯絡團長。'};
-    const row = sheet.getRange(rowNumber, 1, 1, SHIFT_APP.SHIFT_HEADERS.length).getValues()[0];
+    const rowNumber = findShiftRow_(sheet,id);
+    if (!rowNumber) return {ok:true,code:'missing',message:'找不到這筆排班，請聯絡團長。'};
+    const row = sheet.getRange(rowNumber,1,1,SHIFT_APP.SHIFT_HEADERS.length).getValues()[0];
     const employeeId = String(row[2] || '').trim();
     const employee = employeeId ? employeeIndex_()[employeeId] : null;
-    const expectedUid = employeeId ? employee && employee.uid : String(row[13] || '');
-    if (!expectedUid || expectedUid !== uid) {
-      return {ok: true, code: 'wrong_user', message: '此排班通知不是發給這個 LINE 帳號，無法代替別人回覆。'};
-    }
-    if (Number(row[11]) !== version) return {ok: true, code: 'expired', message: '此按鈕已失效，請以團長最新的排班通知為準。'};
     const currentStatus = String(row[7] || '');
-    if (currentStatus === '同意' || currentStatus === '不同意') {
-      if (currentStatus === '同意' && choice === 'agree') {
-        return masaluAcceptedReply_('already', {id, version, date:masaluDate_(row[3]), shift:String(row[6] || '')});
-      }
-      return {ok: true, code: 'already', message: '這筆排班已回覆「' + currentStatus + '」，若要修改請聯絡團長。'};
+    repeated = currentStatus === status;
+    const expectedUid = employeeId ? employee?.uid : String(row[13] || '');
+    let ownsReply = expectedUid === uid;
+    if (!ownsReply && !employeeId && !expectedUid && repeated && Number(row[11]) === version) {
+      const prior = masaluSerial_(choice,{id,version},false);
+      ownsReply = !!prior?.proof && constantTimeEqual_(prior.proof,masaluTemporaryFollowupToken_(id,version,uid));
     }
-    const status = choice === 'agree' ? '同意' : '不同意';
-    sheet.getRange(rowNumber, 8, 1, 2).setValues([[status, new Date()]]);
-    if (!employeeId) sheet.getRange(rowNumber, 14).clearContent(); // 一次性 UID 不留存
-    SpreadsheetApp.flush();
-    safeLog_('員工回覆', id, employeeId, status, employeeId ? '' : '臨時UID已清除', String(input.eventId || ''));
-    confirmed = {
-      id, version, status, date: masaluDate_(row[3]),
-      shift: String(row[6] || ''), employeeId,
-      name: employee ? employee.name : String(row[12] || '臨時人員')
-    };
+    if (!ownsReply) return {ok:true,code:'wrong_user',message:'此排班通知不是發給這個 LINE 帳號，無法代替別人回覆。'};
+    if (Number(row[11]) !== version) return {ok:true,code:'expired',message:'此按鈕已失效，請以團長最新的排班通知為準。'};
+    if (!repeated && ['同意','不同意'].includes(currentStatus)) {
+      return {ok:true,code:'already',message:'這筆排班已回覆「'+currentStatus+'」。如需更改，請聯絡團長重發。'};
+    }
+    const proof = employeeId ? '' : masaluTemporaryFollowupToken_(id,version,uid);
+    confirmed = {id,version,status,employeeId,proof,date:masaluDate_(row[3]),
+      shift:String(row[6] || ''),name:employee?.name || String(row[12] || '臨時人員')};
+    confirmed.serial = masaluSerial_(choice,confirmed).serial;
+    if (!repeated) {
+      sheet.getRange(rowNumber,8,1,2).setValues([[status,new Date()]]);
+      if (!employeeId) sheet.getRange(rowNumber,14).clearContent();
+      SpreadsheetApp.flush();
+      safeLog_('員工回覆',id,employeeId,status,confirmed.serial,String(input.eventId || ''));
+    }
   } finally {
     lock.releaseLock();
   }
-  // Reply to the employee even if notifying the managers fails. Never repeat a confirmed write.
+
+  const code = repeated ? 'already' : 'confirmed';
+  const receipt = choice === 'agree'
+    ? masaluAcceptedReply_(code,{...confirmed,token:confirmed.proof})
+    : {ok:true,code,serial:confirmed.serial,message:['已回覆不同意排班',confirmed.date,confirmed.shift,
+      '流水號：'+confirmed.serial].filter(Boolean).join('\n')};
+  const delivered = masaluDeliverShiftReceipt_(uid,receipt,input.eventId);
+  const result = delivered ? {ok:true,code,serial:confirmed.serial} : receipt;
+  if (repeated) return result;
+
   let managerNotice = {sent:0,failed:0};
   try { managerNotice = masaluNotifyManagers_(confirmed); }
   catch (err) {
-    console.error('團長通知失敗：' + String(err.message).slice(0, 200));
-    safeLog_('團長通知', id, confirmed.employeeId, '失敗', String(err.message).slice(0, 200), '');
+    console.error('團長通知失敗：'+String(err.message).slice(0,200));
+    safeLog_('團長通知',id,confirmed.employeeId,'失敗',String(err.message).slice(0,200),'');
     managerNotice.failed++;
   }
-  if (confirmed.status === '同意') {
-    const token = confirmed.employeeId ? '' : masaluTemporaryFollowupToken_(id, version, uid);
-    return {...masaluAcceptedReply_('confirmed', {...confirmed, token}), managerNotice};
+  return {...result,managerNotice};
+}
+
+function masaluLineRetryKey_(identity) {
+  const hex = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256,identity,Utilities.Charset.UTF_8)
+    .map(byte=>(byte & 255).toString(16).padStart(2,'0')).join('');
+  return [hex.slice(0,8),hex.slice(8,12),'4'+hex.slice(13,16),'8'+hex.slice(17,20),hex.slice(20,32)].join('-');
+}
+
+function masaluLineRetryAccepted_(response) {
+  return Object.keys(response.getAllHeaders()).some(name=>name.toLowerCase()==='x-line-accepted-request-id');
+}
+
+function masaluDeliverShiftReceipt_(uid, receipt, eventId) {
+  const token = PropertiesService.getScriptProperties().getProperty('LINE_CHANNEL_ACCESS_TOKEN');
+  if (!token) return false;
+  try {
+    const identity = 'shift-receipt:'+(eventId || receipt.serial);
+    const text = {type:'text',text:receipt.message,...(receipt.quickReply?{quickReply:receipt.quickReply}:{})};
+    const push = (message,key) => UrlFetchApp.fetch('https://api.line.me/v2/bot/message/push',{
+      method:'post',contentType:'application/json; charset=UTF-8',
+      headers:{Authorization:'Bearer '+token,'X-Line-Retry-Key':masaluLineRetryKey_(key)},
+      payload:JSON.stringify({to:uid,messages:[message]}),muteHttpExceptions:true
+    });
+    let response = push(receipt.replyMessage || text,identity);
+    if (response.getResponseCode()===400 && receipt.replyMessage) response = push(text,identity+':text');
+    const status = response.getResponseCode();
+    if (status>=200 && status<300 || status===409 && masaluLineRetryAccepted_(response)) return true;
+    console.error('員工確認推播失敗：LINE HTTP '+status);
+  } catch (err) {
+    console.error('員工確認推播失敗：'+String(err.message).slice(0,120));
   }
-  return {ok: true, code: 'confirmed', message: '已收到您的排班回覆：【' + confirmed.status + '】，謝謝！', managerNotice};
+  return false;
 }
 
 const MASALU_LEAVE_TYPES = Object.freeze({personal:'事假', sick:'病假', other:'其他'});
@@ -535,16 +618,18 @@ function masaluAcceptedReply_(code, shift) {
   const button = (label, choice) => ({
     type:'button',style:'secondary',height:'sm',action:masaluFollowupAction_(shift,choice,label)
   });
-  return {ok:true,code,message:title,replyMessage:{
+  const buttons = [button('聯絡團長','contact'),button('調班請求','swap'),button('我要請假','leave')];
+  const serial = '流水號：'+shift.serial;
+  return {ok:true,code,serial:shift.serial,message:[title,details,serial].filter(Boolean).join('\n'),
+    quickReply:{items:buttons.map(item=>({type:'action',action:item.action}))},replyMessage:{
     type:'flex',altText:title+(details?'｜'+details:''),
     contents:{type:'bubble',
       body:{type:'box',layout:'vertical',spacing:'sm',contents:[
         {type:'text',text:title,weight:'bold',size:'lg',wrap:true},
-        ...(details ? [{type:'text',text:details,wrap:true,size:'sm'}] : [])
+        ...(details ? [{type:'text',text:details,wrap:true,size:'sm'}] : []),
+        {type:'text',text:serial,wrap:true,size:'sm'}
       ]},
-      footer:{type:'box',layout:'vertical',spacing:'sm',contents:[
-        button('聯絡團長','contact'),button('調班請求','swap'),button('我要請假','leave')
-      ]}
+      footer:{type:'box',layout:'vertical',spacing:'sm',contents:buttons}
     }
   }};
 }
@@ -631,6 +716,8 @@ function masaluSubmitFollowup_(shift, kind, leaveType, note, roster) {
   const sheet = book.getSheetByName(sheetName) || ensureSheet_(book,sheetName,MASALU_FOLLOWUP_HEADERS,false);
   const data = masaluTable_(sheetName,MASALU_FOLLOWUP_HEADERS,book);
   const key = [shift.id,shift.version,kind].join(':');
+  const serial = kind === 'leave' ? masaluSerial_(kind,shift).serial : '';
+  const receipt = (code,message) => ({ok:true,code,message:message+(serial?'\n流水號：'+serial:''),...(serial?{serial}:{})});
   const index = data.rows.findIndex(row=>row[0]===key);
   const saved = index < 0 ? null : data.rows[index];
   const rowNumber = index < 0 ? sheet.getLastRow()+1 : index+2;
@@ -647,7 +734,7 @@ function masaluSubmitFollowup_(shift, kind, leaveType, note, roster) {
   const storedType = saved ? saved[9] : leaveType;
   const storedNote = saved ? saved[10] : note;
   const text = [label,'人員：'+shift.name,'日期：'+shift.date,'班別：'+shift.shift,
-    storedType?'假別：'+storedType:'',storedNote?'留言：'+storedNote:''].filter(Boolean).join('\n');
+    serial?'流水號：'+serial:'',storedType?'假別：'+storedType:'',storedNote?'留言：'+storedNote:''].filter(Boolean).join('\n');
   let notified = false;
   if (token) managerIds.filter(id=>!delivered.has(id)).forEach(id=>{
     try {
@@ -668,10 +755,9 @@ function masaluSubmitFollowup_(shift, kind, leaveType, note, roster) {
     }
   });
   if (!managerIds.length || managerIds.some(id=>!delivered.has(id))) {
-    return {ok:true,code:'request_saved',message:label+'已登記。團長通知尚未全部送達，可再次點選重試。'};
+    return receipt('request_saved',label+'已登記。團長通知尚未全部送達，可再次點選重試。');
   }
-  if (saved && !notified) return {ok:true,code:'request_already',message:label+'已送出，請等候團長回覆。'};
-  return {ok:true,code:'request_sent',message:label+'已送出，請等候團長回覆。'};
+  return receipt(saved && !notified?'request_already':'request_sent',label+'已送出，請等候團長回覆。');
 }
 
 /** Send each confirmed reply to A01–A03. Their LINE UIDs are read from the existing roster. */
@@ -712,7 +798,8 @@ function masaluNotifyManagers_(notice) {
 
 function masaluManagerReplyMessage_(notice) {
   const label = notice.name+' '+(notice.status==='同意'?'已同意':'無法出席')+'排班';
-  if (notice.status === '同意') return {type:'text',text:'✅ '+label+'\n日期：'+notice.date+'\n班別：'+notice.shift};
+  const serial = notice.serial ? '流水號：'+notice.serial : '';
+  if (notice.status === '同意') return {type:'text',text:['✅ '+label,'日期：'+notice.date,'班別：'+notice.shift,serial].filter(Boolean).join('\n')};
   const action = (text, decision, color) => ({
     type:'button',style:'primary',color,
     action:{type:'postback',label:text,displayText:text+'：'+notice.name,
@@ -724,10 +811,11 @@ function masaluManagerReplyMessage_(notice) {
         {type:'text',text:'⚠️ '+label,weight:'bold',wrap:true,size:'lg'},
         {type:'text',text:'日期：'+notice.date,wrap:true,size:'sm'},
         {type:'text',text:'班別：'+notice.shift,wrap:true,size:'sm'},
-        {type:'text',text:'原排班會從月曆隱藏，請選擇略過或安排替補。',wrap:true,size:'sm'}
+        ...(serial?[{type:'text',text:serial,wrap:true,size:'sm'}]:[]),
+        {type:'text',text:'原排班已從月曆隱藏。可略過、安排替補，或溝通後重發。',wrap:true,size:'sm'}
       ]},
-      footer:{type:'box',layout:'horizontal',spacing:'sm',contents:[
-        action('略過','skip','#64748B'),action('替補','replace','#D96B24')
+      footer:{type:'box',layout:'vertical',spacing:'sm',contents:[
+        action('略過','skip','#64748B'),action('替補','replace','#D96B24'),action('重發排班','resend','#2563EB')
       ]}
     }};
 }
@@ -754,6 +842,10 @@ function masaluReadyDaySummary_(date) {
 /** Actions on decline notifications are allowed only for bound A01–A03 managers. */
 function handleManagerDecision_(input) {
   const result = masaluManagerDecisionLocked_(input);
+  if (result.code === 'resend') {
+    const sent = sendShiftRow_(null,true,input.id,Number(input.version));
+    return {ok:true,code:sent.code,message:sent.code==='sent'?'已重新發送，請員工從新通知回覆。':sent.message};
+  }
   if (!result.replacementId) return result;
   const sent = sendShiftRow_(null, false, result.replacementId);
   if (sent.code === 'missing') return {ok:true,code:'missing',message:sent.message};
@@ -795,7 +887,7 @@ function masaluManagerDecisionLocked_(input) {
   const uid=String(input.lineUid||''),id=String(input.id||'');
   const version=Number(input.version),decision=String(input.decision||'');
   if (!validLineUid_(uid) || !/^[a-f0-9-]{36}$/i.test(id) ||
-      !Number.isSafeInteger(version) || version<1 || !['skip','replace','select','cancel'].includes(decision))
+      !Number.isSafeInteger(version) || version<1 || !['skip','replace','select','cancel','resend'].includes(decision))
     return {ok:true,code:'invalid',message:'管理操作格式不正確。'};
   const roster=employeeIndex_();
   if (!['A01','A02','A03'].some(key=>roster[key]&&roster[key].uid===uid))
@@ -809,6 +901,7 @@ function masaluManagerDecisionLocked_(input) {
     const row=sheet.getRange(number,1,1,SHIFT_APP.SHIFT_HEADERS.length).getValues()[0];
     if (Number(row[11])!==version) return {ok:true,code:'expired',message:'通知已失效。'};
     if (String(row[7]||'')!=='不同意') return {ok:true,code:'expired',message:'這筆排班並非「不同意」狀態。'};
+    if (decision==='resend') return {ok:true,code:'resend'};
     const date=masaluDate_(row[3]);
     if (decision==='cancel') return {ok:true,code:'cancelled',message:'已取消選擇替補。'};
     if (decision==='skip') {
