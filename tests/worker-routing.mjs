@@ -104,10 +104,10 @@ test('signed replacement webhook forwards selection and preserves quick reply bu
 
 const bindingUid = 'U' + 'a'.repeat(32);
 const bindingMessage = '測試員工您好，LINE 帳號綁定成功！';
-function bindingWebhook(replyToken) {
+function bindingWebhook(replyToken, text = '測試員工\tABCDEF123456') {
   const body = JSON.stringify({events: [{
     type: 'message', source: {type: 'user', userId: bindingUid}, replyToken,
-    webhookEventId: 'binding-event', message: {type: 'text', text: '綁定 ABCDEF123456'}
+    webhookEventId: 'binding-event', message: {type: 'text', text}
   }]});
   const signature = createHmac('sha256', env.LINE_CHANNEL_SECRET).update(body).digest('base64');
   return new Request('https://worker.example/webhook', {method: 'POST', body, headers: {'x-line-signature': signature}});
@@ -128,9 +128,19 @@ test('first binding replies to the originating LINE conversation when reply is a
     assert.equal(work.length, 1);
     assert.equal(calls.length, 2);
     assert.equal(calls[0].body.lineUid, bindingUid);
+    assert.equal(calls[0].body.text, '測試員工\tABCDEF123456');
     assert.equal(calls[1].url, 'https://api.line.me/v2/bot/message/reply');
     assert.equal(calls[1].body.replyToken, 'first-reply');
     assert.equal(calls[1].body.messages[0].text, bindingMessage);
+  } finally { globalThis.fetch = oldFetch; }
+});
+
+test('unrelated LINE text does not start a binding request', async () => {
+  const oldFetch = globalThis.fetch;
+  globalThis.fetch = async () => { throw new Error('unrelated text reached an upstream'); };
+  try {
+    const response = await worker.fetch(bindingWebhook('chat', '您好，想問明天的班表'), env);
+    assert.equal(response.status, 200);
   } finally { globalThis.fetch = oldFetch; }
 });
 

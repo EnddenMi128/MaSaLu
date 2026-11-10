@@ -951,10 +951,12 @@ function handleLineText_(input) {
   const uid = String(input.lineUid || '');
   const text = String(input.text || '').trim();
   if (!validLineUid_(uid)) return {ok: true, code: 'invalid', message: '無法識別 LINE 帳號。'};
-  if (!/^綁定[\s:：]+[A-Za-z0-9]{12}$/u.test(text)) {
-    return {ok: true, code: 'invalid', message: '綁定格式：綁定 你的12碼綁定碼'};
+  const match = /^([^\r\n]+)([A-Za-z0-9]{12})$/u.exec(text);
+  if (!match || /^綁定[\s:：]+[A-Za-z0-9]{12}$/u.test(text)) {
+    return {ok: true, code: 'invalid', message: '請直接貼上員工名單的姓名和12碼綁定碼，例如：王小明 ABCDEF123456'};
   }
-  const code = text.replace(/^綁定[\s:：]+/u, '').toUpperCase();
+  const name = match[1].trim();
+  const code = match[2].toUpperCase();
   const lock = LockService.getScriptLock();
   lock.waitLock(20000);
   try {
@@ -964,11 +966,12 @@ function handleLineText_(input) {
     if (rows.some(row => String(row[3]).trim() === uid)) {
       return {ok: true, code: 'already_bound', message: '這個 LINE 帳號已完成綁定。如需更換員工身分，請找團長處理。'};
     }
-    const index = rows.findIndex(row => String(row[2]).trim().toUpperCase() === code && !row[3]);
-    if (index < 0) return {ok: true, code: 'invalid_code', message: '綁定碼無效或已使用，請向團長索取新的綁定碼。'};
+    const index = rows.findIndex(row =>
+      String(row[1]).trim() === name && String(row[2]).trim().toUpperCase() === code && !row[3]);
+    if (index < 0) return {ok: true, code: 'invalid_code', message: '姓名或綁定碼不符，或綁定碼已使用。請確認姓名和綁定碼來自同一列，或聯絡團長。'};
     const rowNumber = index + 2;
-    const name = String(rows[index][1]);
     sheet.getRange(rowNumber, 3, 1, 3).setValues([['', uid, new Date()]]);
+    SpreadsheetApp.flush();
     safeLog_('LINE綁定', '', String(rows[index][0]), '成功', name, String(input.eventId || ''));
     return {ok: true, code: 'bound', message: name + ' 您好，LINE 帳號綁定成功！之後可直接在這裡確認排班。'};
   } finally {

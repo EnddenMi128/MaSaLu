@@ -51,6 +51,38 @@ function harness({mockManagerNotice=true}={}) {
   return {ctx,row,logs,notices,serialRows,ledger};
 }
 
+test('LINE binding requires the name and unused code from the same employee row', () => {
+  const {ctx} = harness();
+  const rows = [
+    ['A04', '測試員工', 'ABCDEF123456', '', ''],
+    ['A05', '測試人員', 'FEDCBA654321', '', '']
+  ];
+  const sheet = {
+    getLastRow: () => 1 + rows.length,
+    getRange(row, column, count, width) {
+      return {
+        getDisplayValues: () => rows.slice(row - 2, row - 2 + count)
+          .map(values => values.slice(column - 1, column - 1 + width)),
+        setValues: ([values]) => rows[row - 2].splice(column - 1, width, ...values)
+      };
+    }
+  };
+  ctx.openBook_ = () => ({getSheetByName: () => sheet});
+  const bind = (text, lineUid = uid) => ctx.handleLineText_({text, lineUid});
+
+  assert.equal(bind('綁定 ABCDEF123456').code, 'invalid');
+  assert.equal(bind('ABCDEF123456').code, 'invalid');
+  assert.equal(bind('測試員工 FEDCBA654321').code, 'invalid_code');
+  assert.equal(rows[0][2], 'ABCDEF123456');
+  assert.equal(rows[1][2], 'FEDCBA654321');
+  assert.equal(bind('測試員工\tabcdef123456').code, 'bound');
+  assert.deepEqual(rows[0].slice(2, 4), ['', uid]);
+  assert.equal(bind('測試員工 ABCDEF123456').code, 'already_bound');
+  assert.equal(bind('測試員工 ABCDEF123456', managerUid).code, 'invalid_code');
+  assert.equal(bind('測試人員FEDCBA654321', managerUid).code, 'bound');
+  assert.deepEqual(rows[1].slice(2, 4), ['', managerUid]);
+});
+
 test('agree writes exact response, notifies managers once, repeated clicks are idempotent',()=>{
   const h=harness();
   const input={lineUid:uid,id:uuid,version:1,choice:'agree',eventId:'evt'};

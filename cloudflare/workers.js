@@ -150,7 +150,7 @@ async function handleEvent(event, env, ctx) {
   const eventId = event.webhookEventId || '';
   if (event.type === 'follow') {
     await replyLineSafe(event.replyToken,
-      '歡迎使用 MaSaLu 排班小幫手！\n請輸入「綁定 你的12碼綁定碼」完成綁定；系統會立即回覆成功或失敗。\n已綁定者可直接開啟排班月曆。', env);
+      '歡迎使用 MaSaLu 排班小幫手！\n請直接貼上團長提供的姓名和12碼綁定碼，例如：王小明 ABCDEF123456。\n已綁定者可直接開啟排班月曆。', env);
     return;
   }
   if (event.type === 'message' && event.message?.type === 'text') {
@@ -164,7 +164,7 @@ async function handleEvent(event, env, ctx) {
       await replyLineSafe(event.replyToken,result.message,env,result.quickReply);
       return;
     }
-    if (!text.startsWith('綁定')) return;
+    if (!text.startsWith('綁定') && !/^[^\r\n]+[A-Za-z0-9]{12}$/u.test(text)) return;
     const confirmation = handleBindingMessage(event.replyToken, lineUid, text, eventId, env);
     ctx?.waitUntil(confirmation.catch(() => {}));
     await confirmation;
