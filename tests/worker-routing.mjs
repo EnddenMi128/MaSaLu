@@ -137,7 +137,11 @@ test('first binding replies to the originating LINE conversation when reply is a
 
 test('unrelated LINE text does not start a binding request', async () => {
   const oldFetch = globalThis.fetch;
-  globalThis.fetch = async () => { throw new Error('unrelated text reached an upstream'); };
+  globalThis.fetch = async (url,init) => {
+    assert.equal(url,env.GAS_WEB_APP_URL);
+    assert.equal(JSON.parse(init.body).kind,'contact_message');
+    return Response.json({ok:true,code:'ignored'});
+  };
   try {
     const response = await worker.fetch(bindingWebhook('chat', '您好，想問明天的班表'), env);
     assert.equal(response.status, 200);
@@ -237,5 +241,34 @@ test('a rejected receipt card falls back to text with the same action buttons',a
     }),env);
     assert.equal(response.status,200);
     assert.deepEqual(replies[1],{type:'text',text:'已同意排班\n流水號：A-000001',quickReply});
+  } finally {globalThis.fetch=old;}
+});
+
+test('signed contact text, close button, date picker and swap consent reach the correct GAS handlers',async()=>{
+  const id='11111111-1111-1111-1111-111111111111';
+  const source={type:'user',userId:'U'+'a'.repeat(32)};
+  const events=[
+    {type:'message',message:{type:'text',text:'集合時間？',id:'line-message'}},
+    {type:'postback',postback:{data:'action=shift_followup&id='+id+'&v=1&choice=contact_end'}},
+    {type:'postback',postback:{data:'action=shift_followup&id='+id+'&v=1&choice=swap_date',params:{date:'2026-11-11'}}},
+    {type:'postback',postback:{data:'action=swap_response&id='+id+'&decision=agree'}}
+  ];
+  const body=JSON.stringify({events:events.map(event=>({...event,source,replyToken:'reply',timestamp:123}))});
+  const signature=createHmac('sha256',env.LINE_CHANNEL_SECRET).update(body).digest('base64');
+  const old=globalThis.fetch,calls=[];
+  globalThis.fetch=async(url,init)=>{
+    assert.equal(url,env.GAS_WEB_APP_URL);
+    calls.push(JSON.parse(init.body));
+    return Response.json({ok:true,code:'ignored'});
+  };
+  try {
+    const response=await worker.fetch(new Request('https://worker.example/webhook',{
+      method:'POST',body,headers:{'x-line-signature':signature}
+    }),env);
+    assert.equal(response.status,200);
+    assert.equal(calls.find(call=>call.kind==='contact_message').eventId,'line-message');
+    assert.equal(calls.find(call=>call.choice==='contact_end').timestamp,123);
+    assert.equal(calls.find(call=>call.choice==='swap_date').date,'2026-11-11');
+    assert.equal(calls.find(call=>call.kind==='swap_response').decision,'agree');
   } finally {globalThis.fetch=old;}
 });

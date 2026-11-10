@@ -32,7 +32,14 @@ export default {
 
     // 有意等待 GAS 寫回結果，再回傳 200。後端暫時故障時回 502，搭配 LINE Webhook redelivery 重試。
     // GAS 的身分與版本檢查採冪等設計，避免 webhook 重送造成重複變更。
-    const results = await Promise.allSettled(envelope.events.map(event => handleEvent(event, env, ctx)));
+    const userQueues=new Map();
+    const results = await Promise.allSettled(envelope.events.map(event => {
+      const uid=event?.source?.userId;
+      const previous=userQueues.get(uid);
+      const next=previous ? previous.catch(()=>{}).then(()=>handleEvent(event,env,ctx)) : handleEvent(event,env,ctx);
+      userQueues.set(uid,next);
+      return next;
+    }));
     if (results.some(result => result.status === 'rejected')) {
       for (const result of results) {
         if (result.status === 'rejected') console.error('Webhook processing failed:', String(result.reason?.message || result.reason));
@@ -131,7 +138,7 @@ export function parseManagerPostbackData(data) {
   return {id,version,decision};
 }
 
-function parseShiftFollowupData(data) {
+function parseShiftFollowupData(data, pickedDate) {
   if (typeof data !== 'string' || data.length > 300) return null;
   const qs = new URLSearchParams(data);
   const id = qs.get('id'), version = Number(qs.get('v')), choice = qs.get('choice');
@@ -139,9 +146,27 @@ function parseShiftFollowupData(data) {
   if (qs.get('action') !== 'shift_followup' ||
       !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id || '') ||
       !Number.isSafeInteger(version) || version < 1 ||
-      !/^(contact|swap(?:_send)?|leave(?:_(?:personal|sick|other)(?:_send)?)?)$/.test(choice || '') ||
+      !/^(contact(?:_end)?|swap(?:_date|_shift|_target)?|leave(?:_(?:personal|sick|other)(?:_send)?)?)$/.test(choice || '') ||
       (token && !/^[A-Za-z0-9_-]{43}$/.test(token))) return null;
+  if (['swap_date','swap_shift','swap_target'].includes(choice)) {
+    const date=String(pickedDate || qs.get('date') || '');
+    const target=qs.get('target') || '';
+    const targetVersion=Number(qs.get('tv'));
+    const page=Number(qs.get('page'));
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isSafeInteger(page) || page<0 ||
+        (choice!=='swap_date' && !/^[0-9a-f-]{36}$/i.test(target)) ||
+        (choice==='swap_target' && (!Number.isSafeInteger(targetVersion) || targetVersion<1))) return null;
+    return {id,version,choice,token,date,target,targetVersion,page};
+  }
   return {id,version,choice,token};
+}
+
+function parseSwapResponse(data) {
+  if (typeof data!=='string' || data.length>300) return null;
+  const qs=new URLSearchParams(data);
+  const id=qs.get('id'),decision=qs.get('decision');
+  return qs.get('action')==='swap_response' && /^[0-9a-f-]{36}$/i.test(id||'') &&
+    ['agree','decline'].includes(decision) ? {id,decision} : null;
 }
 
 async function handleEvent(event, env, ctx) {
@@ -164,7 +189,13 @@ async function handleEvent(event, env, ctx) {
       await replyLineSafe(event.replyToken,result.message,env,result.quickReply);
       return;
     }
-    if (!text.startsWith('綁定') && !/^[^\r\n]+[A-Za-z0-9]{12}$/u.test(text)) return;
+    if (!text.startsWith('綁定') && !/^[^\r\n]+[A-Za-z0-9]{12}$/u.test(text)) {
+      if (!text) return;
+      const result=await sendToGas({kind:'contact_message',lineUid,text,timestamp:event.timestamp,
+        eventId:eventId || event.message.id || ''},env);
+      await replyLineSafe(event.replyToken,result.message,env,result.quickReply);
+      return;
+    }
     const confirmation = handleBindingMessage(event.replyToken, lineUid, text, eventId, env);
     ctx?.waitUntil(confirmation.catch(() => {}));
     await confirmation;
@@ -173,11 +204,12 @@ async function handleEvent(event, env, ctx) {
   if (event.type === 'postback') {
     const data = event.postback?.data;
     const parsed = parsePostbackData(data);
-    const followup = parsed ? null : parseShiftFollowupData(data);
-    const manager = parsed || followup ? null : parseManagerPostbackData(data);
-    if (!parsed && !followup && !manager) return;
-    const kind = parsed ? 'shift_reply' : followup ? 'shift_followup' : 'manager_decision';
-    const result = await sendToGas({kind, lineUid, eventId, ...(parsed || followup || manager)}, env);
+    const followup = parsed ? null : parseShiftFollowupData(data,event.postback?.params?.date);
+    const swap = parsed || followup ? null : parseSwapResponse(data);
+    const manager = parsed || followup || swap ? null : parseManagerPostbackData(data);
+    if (!parsed && !followup && !swap && !manager) return;
+    const kind = parsed ? 'shift_reply' : followup ? 'shift_followup' : swap ? 'swap_response' : 'manager_decision';
+    const result = await sendToGas({kind, lineUid, eventId, timestamp:event.timestamp, ...(parsed || followup || swap || manager)}, env);
     const replied = await replyLineSafe(event.replyToken,result.message,env,result.quickReply,result.replyMessage);
     if (!replied && kind==='shift_reply' && result.serial && result.message) {
       // A rejected Flex can still deliver the receipt and its three actions as a quick reply.

@@ -6,6 +6,7 @@ import {createHash,createHmac} from 'node:crypto';
 
 const code = await readFile(new URL('../GAS/程式碼.js', import.meta.url), 'utf8');
 const calendarCode = await readFile(new URL('../GAS/CalendarApi.js', import.meta.url), 'utf8');
+const swapCode = await readFile(new URL('../GAS/ShiftSwap.js', import.meta.url), 'utf8');
 const uuid = '11111111-1111-1111-1111-111111111111';
 const uid = 'U'+'a'.repeat(32);
 const managerUid = 'U'+'b'.repeat(32);
@@ -39,6 +40,7 @@ function harness({mockManagerNotice=true}={}) {
   vm.createContext(ctx);
   vm.runInContext(code,ctx);
   vm.runInContext(calendarCode,ctx);
+  vm.runInContext(swapCode,ctx);
   const ledger={getDataRange:()=>({getValues:()=>[vm.runInContext('MASALU_SERIAL_HEADERS',ctx),...serialRows]}),
     appendRow:values=>serialRows.push(Array.from(values))};
   ctx.openBook_=()=>({getSheetByName:name=>name==='MaSaLu流水號'?ledger:null});
@@ -352,6 +354,7 @@ function followupHarness() {
   h.ctx.masaluTable_=(name,headers,book)=>name==='MaSaLu流水號'?readTable(name,headers,book):{sheet,rows:requests};
   h.ctx.CacheService={getScriptCache:()=>({get:key=>cache.get(key),put:(key,value)=>cache.set(key,value)})};
   h.ctx.PropertiesService={getScriptProperties:()=>({getProperty:()=> 'test-secret'})};
+  h.ctx.masaluLineRetryKey_=value=>value;
   h.ctx.Utilities={
     getUuid:()=> 'ABCDEF01-1111-1111-1111-111111111111',
     computeHmacSha256Signature:(value,key)=>createHmac('sha256',key).update(value).digest(),
@@ -390,21 +393,75 @@ test('leave supports type and optional note, validates owner and version, and de
   assert.equal(h.row[7],'同意');
 });
 
-test('contact and swap are independent; retry only resends to unnotified managers',()=>{
+test('contact sends only messages in the active conversation to the three managers',()=>{
   const h=followupHarness();
   const manager2='U'+'c'.repeat(32);
+  const manager3='U'+'d'.repeat(32);
   const roster=h.ctx.employeeIndex_();
   roster.A02={name:'副團長',uid:manager2};
+  roster.A03={name:'副團長',uid:manager3};
   h.ctx.employeeIndex_=()=>roster;
-  h.fail.add(manager2);
-  const run=choice=>h.ctx.handleShiftFollowup_({...h.input,choice});
-  assert.equal(run('contact').code,'request_saved');
-  h.fail.clear();
-  assert.equal(run('contact').code,'request_sent');
-  assert.deepEqual(h.pushes.map(p=>p.to),[managerUid,manager2,manager2]);
-  assert.equal(run('swap').code,'request_note');
-  assert.equal(run('swap_send').code,'request_sent');
-  assert.deepEqual(h.requests.map(r=>r[8]),['聯絡團長','調班請求']);
+  const run=fields=>h.ctx.handleShiftFollowup_({...h.input,...fields});
+  const text={kind:'contact_message',text:'請問幾點集合？',eventId:'msg-1'};
+  assert.equal(run({...text,timestamp:1}).code,'ignored');
+  const start=run({choice:'contact',timestamp:2});
+  assert.equal(start.code,'contact_open');
+  assert.deepEqual(Array.from(start.quickReply.items,item=>item.action.label),['輸入訊息','結束對話']);
+  assert.equal(run({...text,timestamp:1}).code,'ignored');
+  assert.equal(run({...text,timestamp:3}).code,'contact_sent');
+  assert.deepEqual(h.pushes.map(p=>p.to),[managerUid,manager2,manager3]);
+  assert.match(h.pushes[0].messages[0].text,/員工甲[\s\S]*請問幾點集合？/);
+  assert.equal(run({choice:'contact_end',timestamp:4}).code,'contact_ended');
+  assert.equal(run({choice:'contact',timestamp:2}).code,'ignored');
+  assert.equal(run({...text,timestamp:5}).code,'ignored');
+  assert.equal(h.pushes.length,3);
+});
+
+for (const decision of ['agree','decline']) test('swap '+decision+' only registers a case after the intended recipient agrees',()=>{
+  const h=followupHarness(), invites=[];
+  const targetId='22222222-2222-2222-2222-222222222222';
+  const targetUid='U'+'c'.repeat(32);
+  const roster=h.ctx.employeeIndex_();
+  roster.A05={name:'對方',uid:targetUid};
+  h.ctx.employeeIndex_=()=>roster;
+  h.ctx.masaluDate_=value=>value instanceof Date?'2026-11-05':String(value);
+  const target=[false,targetId,'A05','2026-11-06','','','田園','同意','','已發送','',2];
+  h.ctx.findShiftRow_=(_sheet,id)=>[uuid,targetId].indexOf(id)+2;
+  h.ctx.shiftSheet_=()=>({getLastRow:()=>3,getRange:(row,_column,count)=>({
+    getValues:()=>count===2?[h.row,target]:[row===2?h.row:target]
+  })});
+  const inviteSheet={appendRow:values=>invites.push(Array.from(values)),getRange:(row,column)=>({
+    setValue:value=>{invites[row-2][column-1]=value;}
+  })};
+  const readTable=h.ctx.masaluTable_;
+  h.ctx.masaluTable_=(name,headers,book)=>name==='MaSaLu調班邀請'
+    ? {sheet:inviteSheet,rows:invites}:readTable(name,headers,book);
+  const getBook=h.ctx.openBook_;
+  h.ctx.openBook_=()=>({getSheetByName:name=>name==='MaSaLu調班邀請'?inviteSheet:getBook().getSheetByName(name)});
+
+  const choose=fields=>h.ctx.handleShiftFollowup_({...h.input,...fields});
+  assert.equal(choose({choice:'swap'}).quickReply.items[0].action.type,'datetimepicker');
+  const date='2026-11-06';
+  assert.equal(choose({choice:'swap_date',date}).quickReply.items[0].action.label,'田園');
+  assert.equal(choose({choice:'swap_shift',date,target:targetId}).quickReply.items[0].action.label,'對方');
+  const submit={choice:'swap_target',date,target:targetId,targetVersion:2};
+  assert.equal(choose({...submit,targetVersion:1}).code,'swap_expired');
+  assert.equal(choose(submit).code,'swap_invited');
+  assert.equal(h.requests.length,0);
+  assert.equal(h.pushes[0].to,targetUid);
+  const actions=h.pushes[0].messages[0].contents.footer.contents;
+  assert.deepEqual(actions.map(item=>item.action.label),['同意調班','不同意調班']);
+  const answer={lineUid:targetUid,id:invites[0][0],decision};
+  assert.equal(h.ctx.masaluSwapResponse_({...answer,lineUid:managerUid}).code,'wrong_user');
+  assert.equal(h.ctx.masaluSwapResponse_(answer).code,'swap_answered');
+  assert.equal(h.requests.length,decision==='agree'?1:0);
+  assert.equal(h.pushes.filter(push=>push.to===managerUid).length,decision==='agree'?1:0);
+  if (decision==='agree') assert.equal(h.requests[0][11],'待團長審核');
+  assert.equal(h.ctx.masaluSwapResponse_(answer).code,'swap_answered');
+  assert.equal(h.requests.length,decision==='agree'?1:0);
+  assert.equal(h.pushes.filter(push=>push.to===managerUid).length,decision==='agree'?1:0);
+  assert.equal(target[2],'A05');
+  assert.equal(h.row[2],'A04');
 });
 
 test('temporary staff can use their card after their UID is cleared, copied buttons are rejected',()=>{
@@ -419,7 +476,7 @@ test('temporary staff can use their card after their UID is cleared, copied butt
   const proof=result.replyMessage.contents.footer.contents[0].action.data.split('&proof=')[1];
   assert.match(proof,/^[A-Za-z0-9_-]{43}$/);
   assert.equal(h.ctx.handleShiftFollowup_({...h.input,lineUid:managerUid,choice:'contact',token:proof}).code,'wrong_user');
-  assert.equal(h.ctx.handleShiftFollowup_({...h.input,choice:'contact',token:proof}).code,'request_sent');
+  assert.equal(h.ctx.handleShiftFollowup_({...h.input,choice:'contact',token:proof}).code,'contact_open');
   assert.ok(!JSON.stringify(h.requests).includes(uid));
 });
 
