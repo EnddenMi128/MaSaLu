@@ -148,6 +148,11 @@ function parseShiftFollowupData(data, pickedDate) {
       !Number.isSafeInteger(version) || version < 1 ||
       !/^(contact(?:_end)?|swap(?:_date|_shift|_target)?|leave(?:_(?:personal|sick|other)(?:_send)?)?)$/.test(choice || '') ||
       (token && !/^[A-Za-z0-9_-]{43}$/.test(token))) return null;
+  if (choice==='swap' && qs.has('page')) {
+    const page=Number(qs.get('page'));
+    if (!Number.isSafeInteger(page) || page<0) return null;
+    return {id,version,choice,token,page};
+  }
   if (['swap_date','swap_shift','swap_target'].includes(choice)) {
     const date=String(pickedDate || qs.get('date') || '');
     const target=qs.get('target') || '';

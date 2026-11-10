@@ -8,31 +8,46 @@ function masaluSwapAction_(shift, choice, label, params={}) {
   return {type:'action',action};
 }
 
+function masaluSwapDates_(input, shift, candidates, message='') {
+  const dates=[...new Set(candidates.map(row=>masaluDate_(row[3])))].sort();
+  if (!dates.length) return {ok:true,code:'swap_no_candidates',
+    message:'目前沒有可調換的排班日期。\n對方需有今天或之後的排班、已同意排班並已綁定 LINE，且不能是自己。\n可聯絡團長協助安排。',
+    quickReply:{items:[masaluSwapAction_(shift,'swap','重新查詢'),masaluSwapAction_(shift,'contact','聯絡團長')]}};
+  const page=Math.max(0,Math.min(Number(input.page)||0,Math.floor((dates.length-1)/10)));
+  const items=dates.slice(page*10,page*10+10).map(date=>masaluSwapAction_(shift,'swap_date',date,{date}));
+  if (page>0) items.push(masaluSwapAction_(shift,'swap','上一頁',{page:page-1}));
+  if ((page+1)*10<dates.length) items.push(masaluSwapAction_(shift,'swap','下一頁',{page:page+1}));
+  return {ok:true,code:'swap_date',message:(message?message+'\n':'')+
+    '請選擇想調換的排班日期。以下日期有其他已同意排班、已綁定 LINE 的人員。'+
+    (dates.length>10?'\n第 '+(page+1)+'／'+Math.ceil(dates.length/10)+' 頁':''),quickReply:{items}};
+}
+
 function masaluSwapSelection_(input, shift, roster, uid, sheet) {
   const today=masaluDate_(new Date());
-  const pickDate={type:'action',action:{type:'datetimepicker',label:'選擇日期',mode:'date',min:today,
-    data:masaluFollowupAction_(shift,'swap_date','選擇日期').data}};
   if (!shift.date || !shift.shift || shift.date<today)
     return {ok:true,code:'swap_expired',message:'這筆排班已過期或有異動，請從最新排班發起調班。'};
-  if (input.choice==='swap') return {ok:true,code:'swap_date',message:'請選擇想調換的排班日期。',quickReply:{items:[pickDate]}};
-
-  const date=masaluDate_(input.date);
-  if (!date || date<today) return {ok:true,code:'swap_date',message:'請選擇今天或之後的日期。',quickReply:{items:[pickDate]}};
-  const candidates=sheet.getRange(2,1,sheet.getLastRow()-1,SHIFT_APP.SHIFT_HEADERS.length).getValues().filter(row=>{
+  const last=sheet.getLastRow();
+  const rows=last<2?[]:sheet.getRange(2,1,last-1,SHIFT_APP.SHIFT_HEADERS.length).getValues();
+  const available=rows.filter(row=>{
     const recipient=roster[String(row[2]||'').trim()]?.uid;
-    return row[1] && row[1]!==shift.id && row[6] && row[7]==='同意' && masaluDate_(row[3])===date &&
+    const date=masaluDate_(row[3]);
+    return row[1] && row[1]!==shift.id && row[6] && row[7]==='同意' && date && date>=today &&
       validLineUid_(recipient) && recipient!==uid;
   });
+  if (input.choice==='swap') return masaluSwapDates_(input,shift,available);
+  const date=masaluDate_(input.date);
+  if (!date || date<today) return masaluSwapDates_({},shift,available,'請選擇今天或之後的日期。');
+  const candidates=available.filter(row=>masaluDate_(row[3])===date);
   const selected=candidates.find(row=>row[1]===input.target);
   if (input.choice==='swap_target') {
     if (!selected || Number(selected[11])!==input.targetVersion)
-      return {ok:true,code:'swap_expired',message:'對方的排班已變更，請重新選擇。',quickReply:{items:[pickDate]}};
+      return {...masaluSwapDates_({},shift,available,'對方的排班已變更，請重新選擇。'),code:'swap_expired'};
     return masaluSendSwapInvite_(shift,uid,selected,roster);
   }
 
   const byShift=input.choice==='swap_date';
   if (!candidates.length || (!byShift && !selected))
-    return {ok:true,code:'swap_no_candidates',message:'這個日期或班別沒有可詢問的已確認排班。',quickReply:{items:[pickDate]}};
+    return masaluSwapDates_({},shift,available,date+' 的日期或班別沒有可調換的對象，請改選下方日期。');
   const options=byShift ? [...new Map(candidates.map(row=>[row[6],row])).values()]
     : candidates.filter(row=>row[6]===selected[6]);
   const page=Math.max(0,Math.min(Number(input.page)||0,Math.floor((options.length-1)/10)));
@@ -46,7 +61,7 @@ function masaluSwapSelection_(input, shift, roster, uid, sheet) {
     {date,page:next,...(byShift?{}:{target:input.target})});
   if (page>0) items.push(nav(page-1));
   if ((page+1)*10<options.length) items.push(nav(page+1));
-  items.push(byShift?pickDate:masaluSwapAction_(shift,'swap_date','重選班別',{date}));
+  items.push(byShift?masaluSwapAction_(shift,'swap','重選日期'):masaluSwapAction_(shift,'swap_date','重選班別',{date}));
   return {ok:true,code:byShift?'swap_shift':'swap_target',message:byShift?'請選擇班別\n'+date
     :'請選擇調班對象\n'+date+' ・ '+selected[6],quickReply:{items}};
 }

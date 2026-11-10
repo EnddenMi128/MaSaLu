@@ -283,6 +283,7 @@ test('signed contact text, close button, date picker and swap consent reach the 
     {type:'message',message:{type:'text',text:'集合時間？',id:'line-message'}},
     {type:'postback',postback:{data:'action=shift_followup&id='+id+'&v=1&choice=contact_end'}},
     {type:'postback',postback:{data:'action=shift_followup&id='+id+'&v=1&choice=swap_date',params:{date:'2026-11-11'}}},
+    {type:'postback',postback:{data:'action=shift_followup&id='+id+'&v=1&choice=swap&page=1'}},
     {type:'postback',postback:{data:'action=swap_response&id='+id+'&decision=agree'}}
   ];
   const body=JSON.stringify({events:events.map(event=>({...event,source,replyToken:'reply',timestamp:123}))});
@@ -301,6 +302,7 @@ test('signed contact text, close button, date picker and swap consent reach the 
     assert.equal(calls.find(call=>call.kind==='contact_message').eventId,'line-message');
     assert.equal(calls.find(call=>call.choice==='contact_end').timestamp,123);
     assert.equal(calls.find(call=>call.choice==='swap_date').date,'2026-11-11');
+    assert.equal(calls.find(call=>call.choice==='swap').page,1);
     assert.equal(calls.find(call=>call.kind==='swap_response').decision,'agree');
   } finally {globalThis.fetch=old;}
 });

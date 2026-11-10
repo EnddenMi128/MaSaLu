@@ -380,7 +380,7 @@ test('the three approved-card actions deliver their prompts to the employee thro
   assert.equal(run('swap','swap-event').delivered,true);
   assert.equal(run('leave','leave-event').delivered,true);
   assert.deepEqual(h.pushes.map(push=>push.to),[uid,uid,uid]);
-  assert.deepEqual(h.pushes.map(push=>push.messages[0].quickReply.items[0].action.label),['輸入訊息','選擇日期','事假']);
+  assert.deepEqual(h.pushes.map(push=>push.messages[0].quickReply.items[0].action.label),['輸入訊息','重新查詢','事假']);
   h.fail.add(uid);
   const fallback=run('contact','contact-event');
   assert.equal(fallback.code,'contact_open');
@@ -435,6 +435,36 @@ test('contact sends only messages in the active conversation to the three manage
   assert.equal(h.pushes.length,3);
 });
 
+test('swap dates list only eligible assignments, paginate and recover from obsolete date pickers',()=>{
+  const h=followupHarness();
+  const otherUid='U'+'c'.repeat(32);
+  const roster={A04:{uid},A05:{uid:otherUid},A06:{uid:''}};
+  const shift={id:uuid,version:1,date:'2026-11-05',shift:'玉門'};
+  const row=(date,staff='A05',status='同意')=>[false,'22222222-2222-2222-2222-222222222222',staff,date,'','','田園',status,'','','',1];
+  let rows=[h.row,row('2026-11-01'),row('2026-12-01','A05','待回覆'),row('2026-12-02','A05','不同意'),
+    row('2026-12-03','A06'),row('2026-12-04','A04'),row('bad-date'),
+    ...Array.from({length:15},(_,i)=>row('2026-11-'+String(5+i).padStart(2,'0'))),row('2026-11-05')];
+  h.ctx.masaluDate_=value=>value instanceof Date?'2026-11-05':/^\d{4}-\d{2}-\d{2}$/.test(String(value))?String(value):'';
+  const sheet={getLastRow:()=>rows.length+1,getRange:()=>({getValues:()=>rows})};
+  const choose=input=>h.ctx.masaluSwapSelection_(input,shift,roster,uid,sheet);
+  const first=choose({choice:'swap'});
+  assert.deepEqual(Array.from(first.quickReply.items,item=>item.action.label),[
+    '2026-11-05','2026-11-06','2026-11-07','2026-11-08','2026-11-09',
+    '2026-11-10','2026-11-11','2026-11-12','2026-11-13','2026-11-14','下一頁']);
+  const second=choose({choice:'swap',page:1});
+  assert.deepEqual(Array.from(second.quickReply.items,item=>item.action.label),[
+    '2026-11-15','2026-11-16','2026-11-17','2026-11-18','2026-11-19','上一頁']);
+  const stale=choose({choice:'swap_date',date:'2026-12-01'});
+  assert.match(stale.message,/2026-12-01.*沒有可調換/);
+  assert.equal(stale.quickReply.items[0].action.label,'2026-11-05');
+  assert.match(stale.quickReply.items[0].action.data,/choice=swap_date&date=2026-11-05/);
+  rows=[h.row];
+  const empty=choose({choice:'swap'});
+  assert.equal(empty.code,'swap_no_candidates');
+  assert.match(empty.message,/已綁定 LINE/);
+  assert.deepEqual(Array.from(empty.quickReply.items,item=>item.action.label),['重新查詢','聯絡團長']);
+});
+
 for (const decision of ['agree','decline']) test('swap '+decision+' only registers a case after the intended recipient agrees',()=>{
   const h=followupHarness(), invites=[];
   const targetId='22222222-2222-2222-2222-222222222222';
@@ -458,7 +488,7 @@ for (const decision of ['agree','decline']) test('swap '+decision+' only registe
   h.ctx.openBook_=()=>({getSheetByName:name=>name==='MaSaLu調班邀請'?inviteSheet:getBook().getSheetByName(name)});
 
   const choose=fields=>h.ctx.handleShiftFollowup_({...h.input,...fields});
-  assert.equal(choose({choice:'swap'}).quickReply.items[0].action.type,'datetimepicker');
+  assert.equal(choose({choice:'swap'}).quickReply.items[0].action.label,'2026-11-06');
   const date='2026-11-06';
   assert.equal(choose({choice:'swap_date',date}).quickReply.items[0].action.label,'田園');
   assert.equal(choose({choice:'swap_shift',date,target:targetId}).quickReply.items[0].action.label,'對方');
