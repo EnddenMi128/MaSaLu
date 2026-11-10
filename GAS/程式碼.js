@@ -552,7 +552,7 @@ function handleShiftReply_(input) {
   if (repeated) return result;
 
   let managerNotice = {sent:0,failed:0};
-  try { managerNotice = masaluNotifyManagers_(confirmed); }
+  try { managerNotice = masaluNotifyManagers_(confirmed,choice === 'agree' ? uid : ''); }
   catch (err) {
     console.error('團長通知失敗：'+String(err.message).slice(0,200));
     safeLog_('團長通知',id,confirmed.employeeId,'失敗',String(err.message).slice(0,200),'');
@@ -613,21 +613,22 @@ function masaluFollowupAction_(shift, choice, label) {
 }
 
 function masaluAcceptedReply_(code, shift) {
-  const title = '已同意排班';
+  const title = '✅ '+shift.name+' 已同意排班';
   const details = [shift.date,shift.shift].filter(Boolean).join(' ・ ');
   const button = (label, choice) => ({
     type:'button',style:'secondary',height:'sm',action:masaluFollowupAction_(shift,choice,label)
   });
   const buttons = [button('聯絡團長','contact'),button('調班請求','swap'),button('我要請假','leave')];
-  const serial = '流水號：'+shift.serial;
-  return {ok:true,code,serial:shift.serial,message:[title,details,serial].filter(Boolean).join('\n'),
+  return {ok:true,code,serial:shift.serial,message:[title,details,shift.serial].filter(Boolean).join('\n'),
     quickReply:{items:buttons.map(item=>({type:'action',action:item.action}))},replyMessage:{
     type:'flex',altText:title+(details?'｜'+details:''),
     contents:{type:'bubble',
       body:{type:'box',layout:'vertical',spacing:'sm',contents:[
-        {type:'text',text:title,weight:'bold',size:'lg',wrap:true},
-        ...(details ? [{type:'text',text:details,wrap:true,size:'sm'}] : []),
-        {type:'text',text:serial,wrap:true,size:'sm'}
+        {type:'box',layout:'horizontal',spacing:'sm',contents:[
+          {type:'text',text:title,weight:'bold',size:'lg',wrap:true,flex:1},
+          {type:'text',text:shift.serial,size:'xs',color:'#64748B',align:'end',flex:0}
+        ]},
+        ...(details ? [{type:'text',text:details,wrap:true,size:'sm'}] : [])
       ]},
       footer:{type:'box',layout:'vertical',spacing:'sm',contents:buttons}
     }
@@ -760,8 +761,8 @@ function masaluSubmitFollowup_(shift, kind, leaveType, note, roster) {
   return receipt(saved && !notified?'request_already':'request_sent',label+'已送出，請等候團長回覆。');
 }
 
-/** Send each confirmed reply to A01–A03. Their LINE UIDs are read from the existing roster. */
-function masaluNotifyManagers_(notice) {
+/** Notify A01–A03, skipping the individual update for a manager receiving their own acceptance card. */
+function masaluNotifyManagers_(notice, acceptanceRecipientUid) {
   const token = PropertiesService.getScriptProperties().getProperty('LINE_CHANNEL_ACCESS_TOKEN');
   if (!token) throw new Error('缺少 LINE_CHANNEL_ACCESS_TOKEN');
   const managers = employeeIndex_();
@@ -770,12 +771,12 @@ function masaluNotifyManagers_(notice) {
     .filter(validLineUid_))];
   if (!uids.length) throw new Error('A01–A03 尚未綁定可通知的 LINE 帳號');
   const summary = {sent:0,failed:0};
-  const messages = [masaluManagerReplyMessage_(notice)];
-  if (notice.status === '同意') {
-    const publication = masaluReadyDaySummary_(notice.date);
-    if (publication) messages.push({type:'text',text:publication});
-  }
+  const managerMessage = masaluManagerReplyMessage_(notice);
+  const publication = notice.status === '同意' ? masaluReadyDaySummary_(notice.date) : '';
   uids.forEach(uid => {
+    const messages = uid === acceptanceRecipientUid ? [] : [managerMessage];
+    if (publication) messages.push({type:'text',text:publication});
+    if (!messages.length) return;
     try {
       const result = UrlFetchApp.fetch('https://api.line.me/v2/bot/message/push', {
         method:'post',contentType:'application/json; charset=UTF-8',
@@ -792,14 +793,14 @@ function masaluNotifyManagers_(notice) {
   });
   safeLog_('團長通知', notice.id, notice.employeeId,
     summary.failed ? '部分失敗' : '成功', '成功 '+summary.sent+'，失敗 '+summary.failed, '');
-  if(messages.length>1 && summary.sent) safeLog_('總表發布',notice.id,notice.employeeId,'完成',notice.date,'');
+  if(publication && summary.sent) safeLog_('總表發布',notice.id,notice.employeeId,'完成',notice.date,'');
   return summary;
 }
 
 function masaluManagerReplyMessage_(notice) {
   const label = notice.name+' '+(notice.status==='同意'?'已同意':'無法出席')+'排班';
+  if (notice.status === '同意') return {type:'text',text:['✅ '+label,'日期：'+notice.date,'班別：'+notice.shift,notice.serial].filter(Boolean).join('\n')};
   const serial = notice.serial ? '流水號：'+notice.serial : '';
-  if (notice.status === '同意') return {type:'text',text:['✅ '+label,'日期：'+notice.date,'班別：'+notice.shift,serial].filter(Boolean).join('\n')};
   const action = (text, decision, color) => ({
     type:'button',style:'primary',color,
     action:{type:'postback',label:text,displayText:text+'：'+notice.name,

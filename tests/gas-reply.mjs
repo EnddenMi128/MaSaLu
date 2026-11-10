@@ -10,7 +10,7 @@ const uuid = '11111111-1111-1111-1111-111111111111';
 const uid = 'U'+'a'.repeat(32);
 const managerUid = 'U'+'b'.repeat(32);
 
-function harness() {
+function harness({mockManagerNotice=true}={}) {
   const row = [false,uuid,'A04','2026-11-05','','','玉門','待回覆','','已發送','',1,'','','','',''];
   const logs=[], notices=[], serialRows=[];
   const sheet = {
@@ -47,7 +47,7 @@ function harness() {
   ctx.employeeIndex_=()=>({A04:{name:'員工甲',uid},A01:{name:'團長',uid:managerUid}});
   ctx.masaluDate_=x=>String(x);
   ctx.safeLog_=(...items)=>logs.push(items);
-  ctx.masaluNotifyManagers_=x=>{notices.push(x);return {sent:1,failed:0};};
+  if (mockManagerNotice) ctx.masaluNotifyManagers_=x=>{notices.push(x);return {sent:1,failed:0};};
   return {ctx,row,logs,notices,serialRows,ledger};
 }
 
@@ -57,8 +57,13 @@ test('agree writes exact response, notifies managers once, repeated clicks are i
   const first=h.ctx.handleShiftReply_(input);
   assert.equal(first.code,'confirmed');
   assert.equal(first.serial,'A-000001');
-  assert.match(first.message,/流水號：A-000001/);
-  assert.equal(first.replyMessage.altText,'已同意排班｜2026-11-05 ・ 玉門');
+  assert.equal(first.message,'✅ 員工甲 已同意排班\n2026-11-05 ・ 玉門\nA-000001');
+  assert.equal(first.replyMessage.altText,'✅ 員工甲 已同意排班｜2026-11-05 ・ 玉門');
+  const [title,serial]=first.replyMessage.contents.body.contents[0].contents;
+  assert.equal(title.text,'✅ 員工甲 已同意排班');
+  assert.equal(serial.text,'A-000001');
+  assert.equal(serial.align,'end');
+  assert.equal(serial.size,'xs');
   assert.deepEqual(Array.from(first.replyMessage.contents.footer.contents,b=>b.action.label),['聯絡團長','調班請求','我要請假']);
   assert.equal(h.row[7],'同意');
   assert.equal(h.notices.length,1);
@@ -414,6 +419,27 @@ test('employee receipt is sent to the actual employee before the separate manage
   assert.equal(deliveries[0].key,deliveries[1].key);
 });
 
+test('a manager agreeing to their own shift gets one confirmation card and still receives the day summary',()=>{
+  const h=harness({mockManagerNotice:false}), deliveries=[];
+  h.row[2]='A01';
+  h.ctx.employeeIndex_=()=>({A01:{name:'小米',uid},A02:{name:'團長乙',uid:managerUid}});
+  h.ctx.PropertiesService={getScriptProperties:()=>({getProperty:()=> 'test-token'})};
+  h.ctx.masaluLineRetryKey_=value=>value;
+  h.ctx.UrlFetchApp={fetch(_url,options){
+    deliveries.push(JSON.parse(options.payload));
+    return {getResponseCode:()=>200};
+  }};
+  h.ctx.handleShiftReply_({id:uuid,version:1,choice:'agree',lineUid:uid,eventId:'event'});
+  const ownMessages=deliveries.filter(delivery=>delivery.to===uid).flatMap(delivery=>delivery.messages);
+  assert.deepEqual(ownMessages.map(message=>message.type),['flex','text']);
+  assert.match(ownMessages[0].altText,/小米 已同意排班/);
+  assert.match(ownMessages[1].text,/總排班已全部確認/);
+  const otherMessages=deliveries.find(delivery=>delivery.to===managerUid).messages;
+  assert.equal(otherMessages.length,2);
+  assert.match(otherMessages[0].text,/小米 已同意排班/);
+  assert.equal(otherMessages[1].text,ownMessages[1].text);
+});
+
 test('a manager can resend a declined shift once, failed delivery preserves decline and a new answer gets a new serial',()=>{
   const h=harness(), sends=[];
   h.ctx.PropertiesService={getScriptProperties:()=>({getProperty:()=> 'test-token'})};
@@ -464,6 +490,6 @@ test('LINE rejects the rich receipt, so GAS sends the same serial and buttons as
   const result=h.ctx.handleShiftReply_({id:uuid,version:1,choice:'agree',lineUid:uid,eventId:'event'});
   assert.equal(result.message,undefined);
   assert.equal(messages[0].type,'flex');
-  assert.match(messages[1].text,/流水號：A-000001/);
+  assert.match(messages[1].text,/\nA-000001$/);
   assert.deepEqual(messages[1].quickReply.items.map(item=>item.action.label),['聯絡團長','調班請求','我要請假']);
 });
