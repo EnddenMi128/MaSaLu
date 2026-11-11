@@ -745,8 +745,9 @@ function handleShiftFollowup_(input) {
       return masaluContactReply_(shift,'contact_sent',message);
     }
     if (choice.startsWith('swap')) {
+      shift.shiftLabel = masaluSwapShiftText_(row);
       const result = masaluSwapSelection_(input,shift,roster,uid,sheet);
-      return {...result,message:'🔄 調班申請\n原本的班｜'+shift.date+' ・ '+shift.shift+'\n\n'+result.message};
+      return {...result,message:'🔄 調班申請\n原本的班｜'+shift.date+' ・ '+shift.shiftLabel+'\n\n'+result.message};
     }
     if (choice === 'leave') {
       return {ok:true,code:'leave_types',message:'請選擇假別',quickReply:{items:

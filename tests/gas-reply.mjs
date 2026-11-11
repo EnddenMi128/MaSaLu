@@ -217,6 +217,22 @@ test('removing just one staff member reports a targeted cancellation',()=>{
   assert.equal(result.removed[0].staffId,'A05');
 });
 
+test('one person cannot be at both main locations but can also have a morning shift elsewhere',()=>{
+  const {h,data,records,edits}=editHarness();
+  data.shifts.rows.push(['ty','田園',false],['am','早班・其他地點',false]);
+  assert.throws(()=>h.ctx.masaluSaveDay_(data,{
+    date:'2026-11-05',assignments:{ym:['A04'],ty:['A04']}
+  },false),/只能安排玉門或田園其中一邊/);
+  assert.equal(records.length,1);
+  assert.equal(edits.length,0);
+  const result=h.ctx.masaluSaveDay_(data,{
+    date:'2026-11-05',assignments:{ym:['A04'],am:['A04']}
+  },false);
+  assert.equal(result.retained,1);
+  assert.equal(result.addedIds.length,1);
+  assert.equal(records[1][6],'早班・其他地點');
+});
+
 test('clear notification broadcasts to bound staff; non-clear only notifies removed user',()=>{
   const {h}=editHarness(), deliveries=[];
   const uid1='U'+'1'.repeat(32),uid2='U'+'2'.repeat(32);
@@ -468,13 +484,15 @@ test('swap dates list only eligible assignments, paginate and recover from obsol
 
 for (const decision of ['agree','decline']) test('swap '+decision+' only registers a case after the intended recipient agrees',()=>{
   const h=followupHarness(), invites=[];
+  h.row[4]='14:00';
+  h.row[5]='17:00';
   const targetId='22222222-2222-2222-2222-222222222222';
   const targetUid='U'+'c'.repeat(32);
   const roster=h.ctx.employeeIndex_();
   roster.A05={name:'對方',uid:targetUid};
   h.ctx.employeeIndex_=()=>roster;
   h.ctx.masaluDate_=value=>value instanceof Date?'2026-11-05':String(value);
-  const target=[false,targetId,'A05','2026-11-06','','','田園','同意','','已發送','',2];
+  const target=[false,targetId,'A05','2026-11-06','18:00','20:00','田園','同意','','已發送','',2];
   h.ctx.findShiftRow_=(_sheet,id)=>[uuid,targetId].indexOf(id)+2;
   h.ctx.shiftSheet_=()=>({getLastRow:()=>3,getRange:(row,_column,count)=>({
     getValues:()=>count===2?[h.row,target]:[row===2?h.row:target]
@@ -492,9 +510,10 @@ for (const decision of ['agree','decline']) test('swap '+decision+' only registe
   const dates=choose({choice:'swap'});
   assert.equal(dates.quickReply.items[0].action.label,'2026-11-06');
   assert.match(dates.message,/原本的班｜2026-11-05 ・ 玉門/);
+  assert.match(dates.message,/14:00–17:00/);
   const date='2026-11-06';
   const shifts=choose({choice:'swap_date',date});
-  assert.equal(shifts.quickReply.items[0].action.label,'田園');
+  assert.equal(shifts.quickReply.items[0].action.label,'田園 ・ 18:00–20:00');
   assert.match(shifts.message,/原本的班｜2026-11-05 ・ 玉門[\s\S]*想換的日期｜2026-11-06/);
   const people=choose({choice:'swap_shift',date,target:targetId});
   assert.equal(people.quickReply.items[0].action.label,'對方');
@@ -504,6 +523,7 @@ for (const decision of ['agree','decline']) test('swap '+decision+' only registe
   const invited=choose(submit);
   assert.equal(invited.code,'swap_invited');
   assert.match(invited.message,/原本的班｜2026-11-05 ・ 玉門[\s\S]*想換的班｜2026-11-06 ・ 田園[\s\S]*調班對象｜對方/);
+  assert.match(invited.message,/18:00–20:00/);
   assert.equal(h.requests.length,0);
   assert.equal(h.pushes[0].to,targetUid);
   const actions=h.pushes[0].messages[0].contents.footer.contents;

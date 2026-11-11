@@ -2,6 +2,13 @@ const MASALU_SWAP_INVITES = 'MaSaLu調班邀請';
 const MASALU_SWAP_HEADERS = ['邀請ID','建立時間','原排班ID','原排班版次','原員工編號','原LINE_UID',
   '對方排班ID','對方排班版次','對方員工編號','對方LINE_UID','狀態','原日期','原班別','對方日期','對方班別'];
 
+function masaluSwapShiftText_(row) {
+  const times=[row[4],row[5]].map(value=>value instanceof Date
+    ? Utilities.formatDate(value,openBook_().getSpreadsheetTimeZone(),'HH:mm')
+    : String(value || '').trim());
+  return String(row[6] || '')+' ・ '+(times.every(Boolean)?times.join('–'):'時段待確認');
+}
+
 function masaluSwapAction_(shift, choice, label, params={}) {
   const action=masaluFollowupAction_(shift,choice,label.slice(0,20));
   action.data+=Object.entries(params).map(([key,value])=>'&'+key+'='+encodeURIComponent(value)).join('');
@@ -48,11 +55,11 @@ function masaluSwapSelection_(input, shift, roster, uid, sheet) {
   const byShift=input.choice==='swap_date';
   if (!candidates.length || (!byShift && !selected))
     return masaluSwapDates_({},shift,available,date+' 的日期或班別沒有可調換的對象，請改選下方日期。');
-  const options=byShift ? [...new Map(candidates.map(row=>[row[6],row])).values()]
-    : candidates.filter(row=>row[6]===selected[6]);
+  const options=byShift ? [...new Map(candidates.map(row=>[masaluSwapShiftText_(row),row])).values()]
+    : candidates.filter(row=>masaluSwapShiftText_(row)===masaluSwapShiftText_(selected));
   const page=Math.max(0,Math.min(Number(input.page)||0,Math.floor((options.length-1)/10)));
   const items=options.slice(page*10,page*10+10).map(row=>{
-    if (byShift) return masaluSwapAction_(shift,'swap_shift',String(row[6]),{date,target:row[1]});
+    if (byShift) return masaluSwapAction_(shift,'swap_shift',masaluSwapShiftText_(row),{date,target:row[1]});
     const staffId=String(row[2]).trim();
     return masaluSwapAction_(shift,'swap_target',roster[staffId]?.name || staffId,
       {date,target:row[1],tv:row[11]});
@@ -63,7 +70,7 @@ function masaluSwapSelection_(input, shift, roster, uid, sheet) {
   if ((page+1)*10<options.length) items.push(nav(page+1));
   items.push(byShift?masaluSwapAction_(shift,'swap','重選日期'):masaluSwapAction_(shift,'swap_date','重選班別',{date}));
   return {ok:true,code:byShift?'swap_shift':'swap_target',message:byShift?'想換的日期｜'+date+'\n請選擇班別。'
-    :'想換的班｜'+date+' ・ '+selected[6]+'\n請選擇調班對象。',quickReply:{items}};
+    :'想換的班｜'+date+' ・ '+masaluSwapShiftText_(selected)+'\n請選擇調班對象。',quickReply:{items}};
 }
 
 function masaluSendSwapInvite_(shift, uid, target, roster) {
@@ -90,14 +97,14 @@ function masaluSendSwapInvite_(shift, uid, target, roster) {
     }
   }));
   const text=['🔄 調班詢問',shift.name+' 想和你調班。',
-    '對方的班｜'+shift.date+' ・ '+shift.shift,'你的班｜'+targetDate+' ・ '+target[6],
+    '對方的班｜'+shift.date+' ・ '+(shift.shiftLabel || shift.shift),'你的班｜'+targetDate+' ・ '+masaluSwapShiftText_(target),
     '同意後會交由團長審核。'].join('\n');
   const card={type:'flex',altText:'調班詢問｜'+shift.name,contents:{type:'bubble',
     body:{type:'box',layout:'vertical',contents:[{type:'text',text,wrap:true}]},
     footer:{type:'box',layout:'vertical',spacing:'sm',contents:buttons}
   }};
   const sent=masaluPushWorkflowMessage_(recipient.uid,card,'swap-invite:'+inviteId);
-  const details='想換的班｜'+targetDate+' ・ '+target[6]+'\n調班對象｜'+(recipient.name||staffId)+'\n';
+  const details='想換的班｜'+targetDate+' ・ '+masaluSwapShiftText_(target)+'\n調班對象｜'+(recipient.name||staffId)+'\n';
   return sent ? {ok:true,code:'swap_invited',message:details+'已送出詢問，等對方同意後才會立案。'}
     : {ok:true,code:'swap_not_sent',message:details+'調班邀請暫時無法送出，可再點一次同一位對象重試。'};
 }
@@ -148,18 +155,19 @@ function masaluSwapResponse_(input) {
     if (decision==='agree') {
       const shift={id:sourceId,version:sourceVersion,employeeId:sourceStaff,date:masaluDate_(source[3]),
         shift:source[6],name:roster[sourceStaff]?.name || source[12] || '臨時人員'};
-      const details='對方已同意｜'+other+' ・ '+masaluDate_(target[3])+' ・ '+target[6];
+      const details='對方已同意｜'+other+' ・ '+masaluDate_(target[3])+' ・ '+masaluSwapShiftText_(target)+
+        '\n原班時段｜'+masaluSwapShiftText_(source);
       const result=masaluSubmitFollowup_(shift,'swap','',details,roster,id);
       managerPending=result.code==='request_saved';
     }
     const text=decision==='agree' ? other+' 已同意調班。案件已登記，待團長審核。'
       : other+' 不同意這次調班。';
-    const sourceDetails='原本的班｜'+masaluDate_(source[3])+' ・ '+source[6];
-    const targetDetails='想換的班｜'+masaluDate_(target[3])+' ・ '+target[6];
+    const sourceDetails='原本的班｜'+masaluDate_(source[3])+' ・ '+masaluSwapShiftText_(source);
+    const targetDetails='想換的班｜'+masaluDate_(target[3])+' ・ '+masaluSwapShiftText_(target);
     masaluPushWorkflowMessage_(sourceUid,{type:'text',text:[text,sourceDetails,targetDetails].join('\n')},'swap-result:'+id);
     const answer=decision==='decline'?'已回覆不同意調班。'
       : '已同意並立案，待團長審核。'+(managerPending?'部分團長通知尚未送達，可再點「同意調班」重試。':'');
-    return {ok:true,code:'swap_answered',message:[answer,'你的班｜'+masaluDate_(target[3])+' ・ '+target[6],
-      '對方的班｜'+masaluDate_(source[3])+' ・ '+source[6]].join('\n')};
+    return {ok:true,code:'swap_answered',message:[answer,'你的班｜'+masaluDate_(target[3])+' ・ '+masaluSwapShiftText_(target),
+      '對方的班｜'+masaluDate_(source[3])+' ・ '+masaluSwapShiftText_(source)].join('\n')};
   } finally { lock.releaseLock(); }
 }

@@ -121,7 +121,7 @@ function masaluProtected_(r) {
 function masaluSaveDay_(data,payload,clear) {
   const date=masaluDate_(payload.date);
   if(!date || date!==payload.date) throw new Error('日期格式錯誤');
-  const bootstrap=masaluBootstrap_(data),wanted=new Set();
+  const bootstrap=masaluBootstrap_(data),wanted=new Set(),mainLocations=new Map();
   const assignments=clear ? {} : payload.assignments;
   if(!assignments || typeof assignments!=='object'||Array.isArray(assignments)) throw new Error('排班格式錯誤');
   Object.keys(assignments).forEach(id=>{
@@ -129,6 +129,12 @@ function masaluSaveDay_(data,payload,clear) {
     if(!shift||!Array.isArray(assignments[id])) throw new Error('班別已變更，請重新整理');
     assignments[id].forEach(staffId=>{
       if(!bootstrap.staff.some(p=>p.id===staffId)) throw new Error('人員不存在');
+      const location=/玉門/.test(shift.name)?'玉門':/田園/.test(shift.name)?'田園':'';
+      if(location) {
+        const previous=mainLocations.get(staffId);
+        if(previous && previous!==location) throw new Error('同一天每人只能安排玉門或田園其中一邊；其他地點的早班可另外安排。');
+        mainLocations.set(staffId,location);
+      }
       wanted.add(JSON.stringify([staffId,shift.name]));
     });
   });
