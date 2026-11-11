@@ -276,7 +276,7 @@ test('approved-card actions use the GAS delivery and signal retry when both path
   } finally {globalThis.fetch=old;}
 });
 
-test('signed contact text, close button, date picker and swap consent reach the correct GAS handlers',async()=>{
+test('signed contact, swap and leave review events reach the correct GAS handlers',async()=>{
   const id='11111111-1111-1111-1111-111111111111';
   const source={type:'user',userId:'U'+'a'.repeat(32)};
   const events=[
@@ -284,7 +284,10 @@ test('signed contact text, close button, date picker and swap consent reach the 
     {type:'postback',postback:{data:'action=shift_followup&id='+id+'&v=1&choice=contact_end'}},
     {type:'postback',postback:{data:'action=shift_followup&id='+id+'&v=1&choice=swap_date',params:{date:'2026-11-11'}}},
     {type:'postback',postback:{data:'action=shift_followup&id='+id+'&v=1&choice=swap&page=1'}},
-    {type:'postback',postback:{data:'action=swap_response&id='+id+'&decision=agree'}}
+    {type:'postback',postback:{data:'action=swap_response&id='+id+'&decision=agree'}},
+    {type:'message',message:{type:'text',text:'審核請假 l-000001',id:'legacy-leave'}},
+    {type:'postback',postback:{data:'action=leave_review&serial=L-000001&decision=approve'}},
+    {type:'postback',postback:{data:'action=leave_review&serial=L-000001&decision=reject'}}
   ];
   const body=JSON.stringify({events:events.map(event=>({...event,source,replyToken:'reply',timestamp:123}))});
   const signature=createHmac('sha256',env.LINE_CHANNEL_SECRET).update(body).digest('base64');
@@ -304,5 +307,7 @@ test('signed contact text, close button, date picker and swap consent reach the 
     assert.equal(calls.find(call=>call.choice==='swap_date').date,'2026-11-11');
     assert.equal(calls.find(call=>call.choice==='swap').page,1);
     assert.equal(calls.find(call=>call.kind==='swap_response').decision,'agree');
+    assert.deepEqual(calls.filter(call=>call.kind==='leave_review').map(call=>[call.serial,call.decision]),
+      [['L-000001',undefined],['L-000001','approve'],['L-000001','reject']]);
   } finally {globalThis.fetch=old;}
 });

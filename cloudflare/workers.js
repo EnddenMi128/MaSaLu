@@ -185,6 +185,11 @@ async function handleEvent(event, env, ctx) {
   }
   if (event.type === 'message' && event.message?.type === 'text') {
     const text = String(event.message.text || '').trim();
+    const leaveReview = /^審核請假\s+(L-\d{6,})$/i.exec(text);
+    if (leaveReview) {
+      return handleFollowupEvent(event,{kind:'leave_review',lineUid,eventId:eventId || event.message.id || '',
+        serial:leaveReview[1].toUpperCase()},env);
+    }
     if (text === '我的UID') {
       await replyLine(event.replyToken, '您的 LINE UID：\n' + lineUid + '\n\n若要接收臨時排班，請私下提供給團長。請勿公開張貼。', env);
       return;
@@ -206,6 +211,10 @@ async function handleEvent(event, env, ctx) {
   }
   if (event.type === 'postback') {
     const data = event.postback?.data;
+    const leaveReview = typeof data==='string' && /^action=leave_review&serial=(L-\d{6,})&decision=(approve|reject)$/.exec(data);
+    if (leaveReview) {
+      return handleFollowupEvent(event,{kind:'leave_review',lineUid,eventId,serial:leaveReview[1],decision:leaveReview[2]},env);
+    }
     const parsed = parsePostbackData(data);
     const followup = parsed ? null : parseShiftFollowupData(data,event.postback?.params?.date);
     const swap = parsed || followup ? null : parseSwapResponse(data);

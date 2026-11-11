@@ -400,10 +400,13 @@ test('unauthenticated GET cannot read the roster or calendar through legacy JSON
 function followupHarness() {
   const h=harness(), requests=[], cache=new Map(), pushes=[];
   h.row[7]='同意';
+  let reviewHeaders=['',''];
   const sheet={
     getLastRow:()=>requests.length+1,
     appendRow:row=>requests.push(Array.from(row)),
-    getRange:(row,col)=>({setValue(value){requests[row-2][col-1]=value;}})
+    getRange:(row,col)=>row===1 && col===14
+      ? {getValues:()=>[reviewHeaders],setValues:([headers])=>{reviewHeaders=headers;}}
+      : {setValue(value){requests[row-2][col-1]=value;}}
   };
   const readTable=h.ctx.masaluTable_;
   h.ctx.openBook_=()=>({getSheetByName:name=>name==='MaSaLu流水號'?h.ledger:sheet});
@@ -459,13 +462,35 @@ test('leave supports type and optional note, validates owner and version, and de
   assert.equal(h.requests[0][9],'病假');
   assert.equal(h.requests[0][10],"'=not a formula");
   assert.equal(h.requests[0][11],'待處理');
-  assert.match(h.pushes[0].messages[0].text,/員工甲[\s\S]*2026-11-05[\s\S]*=not a formula/);
+  const card=h.pushes[0].messages[0];
+  assert.match(card.contents.body.contents[0].text,/員工甲[\s\S]*2026-11-05[\s\S]*=not a formula[\s\S]*是否核准/);
+  assert.deepEqual(card.contents.footer.contents.map(button=>button.action.label),['核准','不核准']);
   const repeat=run({choice:'leave_personal_send'});
   assert.equal(repeat.code,'request_already');
   assert.equal(repeat.serial,submitted.serial);
   assert.equal(h.requests.length,1);
   assert.equal(h.pushes.length,1);
   assert.equal(h.row[7],'同意');
+});
+
+test('managers can review a legacy leave request once and retry an undelivered result',()=>{
+  const h=followupHarness();
+  h.ledger.appendRow([uuid+':1:leave','L-000001']);
+  h.requests.push([uuid+':1:leave',new Date(),uuid,1,'A04','員工甲','2026-11-05','玉門','請假申請','病假','感冒','待處理','A01']);
+  const review=(decision,lineUid=managerUid)=>h.ctx.masaluLeaveReview_({lineUid,serial:'L-000001',decision});
+  assert.equal(review('approve',uid).code,'unauthorized');
+  assert.equal(review().quickReply.items.length,2);
+  h.fail.add(uid);
+  assert.equal(review('approve').code,'leave_result_pending');
+  assert.equal(h.requests[0][11],'已核准');
+  assert.equal(review('reject').code,'already');
+  assert.equal(review().quickReply.items[0].action.label,'重試通知');
+  h.fail.delete(uid);
+  assert.equal(review('approve').code,'leave_reviewed');
+  assert.match(h.pushes.at(-1).messages[0].text,/L-000001[\s\S]*已核准/);
+  const deliveries=h.pushes.length;
+  assert.equal(review('approve').code,'leave_reviewed');
+  assert.equal(h.pushes.length,deliveries);
 });
 
 test('contact sends only messages in the active conversation to the three managers',()=>{

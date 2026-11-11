@@ -345,6 +345,8 @@ function doPost(e) {
       result = masaluDeliverFollowup_(input,handleShiftFollowup_(input));
     } else if (input.kind === 'swap_response') {
       result = masaluDeliverFollowup_(input,masaluSwapResponse_(input));
+    } else if (input.kind === 'leave_review') {
+      result = masaluDeliverFollowup_(input,masaluLeaveReview_(input));
     } else if (input.kind === 'manager_decision') {
       result = handleManagerDecision_(input);
     } else if (input.kind === 'bind_or_message') {
@@ -761,7 +763,7 @@ function handleShiftFollowup_(input) {
     if (!choice.endsWith('_send')) {
       return masaluFollowupNotePrompt_(uid,shift,choice,leaveType);
     }
-    return masaluSubmitFollowup_(shift,kind,leaveType,note,roster);
+    return masaluSubmitFollowup_(shift,kind,leaveType,note,roster,undefined,uid);
   } finally {
     lock.releaseLock();
   }
@@ -792,11 +794,12 @@ function masaluFollowupNotePrompt_(uid, shift, choice, leaveType) {
   };
 }
 
-function masaluSubmitFollowup_(shift, kind, leaveType, note, roster, caseId) {
+function masaluSubmitFollowup_(shift, kind, leaveType, note, roster, caseId, applicantUid) {
   const label = {swap:'調班請求',leave:'請假申請'}[kind];
   const book = openBook_();
   const sheetName = 'MaSaLu排班請求';
   const sheet = book.getSheetByName(sheetName) || ensureSheet_(book,sheetName,MASALU_FOLLOWUP_HEADERS,false);
+  if (kind === 'leave') masaluEnsureLeaveColumns_(sheet);
   const data = masaluTable_(sheetName,MASALU_FOLLOWUP_HEADERS,book);
   const key = caseId || [shift.id,shift.version,kind].join(':');
   const serial = kind === 'leave' ? masaluSerial_(kind,shift).serial : '';
@@ -808,8 +811,12 @@ function masaluSubmitFollowup_(shift, kind, leaveType, note, roster, caseId) {
   if (!saved) {
     const safeNote = /^[=+\-@]/.test(note) ? "'"+note : note;
     sheet.appendRow([key,new Date(),shift.id,shift.version,shift.employeeId,shift.name,
-      shift.date,shift.shift,label,leaveType,safeNote,caseId?'待團長審核':'待處理','']);
+      shift.date,shift.shift,label,leaveType,safeNote,caseId?'待團長審核':'待處理','',
+      kind === 'leave' && !shift.employeeId ? applicantUid : '']);
     SpreadsheetApp.flush();
+  }
+  if (kind === 'leave' && saved && saved[11] !== '待處理') {
+    return receipt('request_already','請假申請'+saved[11]+'。');
   }
 
   const managerIds = ['A01','A02','A03'].filter(id=>validLineUid_(roster[id]?.uid));
@@ -825,7 +832,7 @@ function masaluSubmitFollowup_(shift, kind, leaveType, note, roster, caseId) {
       const recipient=roster[id].uid;
       const accepted=caseId
         ? masaluPushWorkflowMessage_(recipient,{type:'text',text},'swap-review:'+caseId)
-        : masaluPushFollowupNotice_(recipient,text,token);
+        : masaluPushWorkflowMessage_(recipient,masaluLeaveReviewCard_(text,serial),'leave-review:'+serial);
       if (accepted) {
         delivered.add(id);
         sheet.getRange(rowNumber,13).setValue([...delivered].join(','));
@@ -842,12 +849,84 @@ function masaluSubmitFollowup_(shift, kind, leaveType, note, roster, caseId) {
   return receipt(saved && !notified?'request_already':'request_sent',label+'已送出，請等候團長回覆。');
 }
 
-function masaluPushFollowupNotice_(uid,text,token) {
-  const response=UrlFetchApp.fetch('https://api.line.me/v2/bot/message/push',{
-    method:'post',contentType:'application/json; charset=UTF-8',headers:{Authorization:'Bearer '+token},
-    payload:JSON.stringify({to:uid,messages:[{type:'text',text}]}),muteHttpExceptions:true
-  });
-  return response.getResponseCode()>=200 && response.getResponseCode()<300;
+function masaluEnsureLeaveColumns_(sheet) {
+  const range = sheet.getRange(1,14,1,2);
+  const headers = ['臨時申請人LINE_UID','請假結果通知時間'];
+  const existing = range.getValues()[0];
+  if (existing.every((value,index)=>value===headers[index])) return;
+  if (existing.some((value,index)=>value && value!==headers[index])) throw new Error('請假審核欄位已被使用');
+  range.setValues([headers]);
+}
+
+function masaluLeaveReviewActions_(serial) {
+  return [['核准','approve'],['不核准','reject']].map(([label,decision])=>({
+    type:'postback',label,displayText:label+' '+serial,
+    data:'action=leave_review&serial='+serial+'&decision='+decision
+  }));
+}
+
+function masaluLeaveReviewCard_(text,serial) {
+  return {type:'flex',altText:'請假申請 '+serial+'｜待團長審核',contents:{type:'bubble',
+    body:{type:'box',layout:'vertical',contents:[{type:'text',wrap:true,text:text+'\n\n是否核准？'}]},
+    footer:{type:'box',layout:'horizontal',spacing:'sm',contents:masaluLeaveReviewActions_(serial).map(action=>({
+      type:'button',style:'primary',color:action.label==='核准'?'#249B59':'#CF4545',action
+    }))}
+  }};
+}
+
+function masaluLeaveReview_(input) {
+  const reply = (code,message)=>({ok:true,code,message});
+  const {lineUid,serial,decision} = input;
+  if (!validLineUid_(lineUid) || !/^L-\d{6,}$/.test(serial || '') ||
+      (decision && !['approve','reject'].includes(decision))) return reply('invalid','請輸入「審核請假 L-000001」格式的指令。');
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    const roster = employeeIndex_();
+    const manager = ['A01','A02','A03'].find(id=>roster[id]?.uid===lineUid);
+    if (!manager) return reply('unauthorized','只有團長可以審核請假。');
+    const book = openBook_();
+    const sheetName = 'MaSaLu排班請求';
+    if (!book.getSheetByName(sheetName) || !book.getSheetByName(MASALU_SERIAL_SHEET)) return reply('missing','找不到這筆請假申請。');
+    const ledger = masaluTable_(MASALU_SERIAL_SHEET,MASALU_SERIAL_HEADERS,book);
+    const key = ledger.rows.find(row=>row[1]===serial)?.[0];
+    const requests = masaluTable_(sheetName,MASALU_FOLLOWUP_HEADERS,book);
+    const index = requests.rows.findIndex(row=>row[0]===key && row[8]==='請假申請');
+    if (index<0) return reply('missing','找不到這筆請假申請。');
+    const row = requests.rows[index];
+    const details = ['請假申請 '+serial,'人員：'+row[5],'日期：'+masaluDate_(row[6]),'班別：'+row[7],
+      '假別：'+row[9],row[10]?'留言：'+row[10]:''].filter(Boolean).join('\n');
+    const pending = ['待處理','待團長審核'].includes(row[11]);
+    if (!decision && pending) return {...reply('leave_review_pending',details+'\n是否核准？'),
+      quickReply:{items:masaluLeaveReviewActions_(serial).map(action=>({type:'action',action}))}};
+    if (!decision) {
+      const statusReply = reply('leave_review_status',details+'\n結果：'+row[11]);
+      if (row[14] || !['已核准','不核准'].includes(row[11])) return statusReply;
+      const action = masaluLeaveReviewActions_(serial)[row[11]==='已核准'?0:1];
+      return {...statusReply,message:statusReply.message+'\n申請人通知尚未送達。',
+        quickReply:{items:[{type:'action',action:{...action,label:'重試通知'}}]}};
+    }
+    const status = decision==='approve'?'已核准':'不核准';
+    if (!pending && row[11]!==status) return reply('already','請假申請 '+serial+' 已處理，結果為「'+row[11]+'」。');
+
+    masaluEnsureLeaveColumns_(requests.sheet);
+    if (pending) {
+      requests.sheet.getRange(index+2,12).setValue(status);
+      SpreadsheetApp.flush();
+      safeLog_('請假審核',row[2],manager,status,serial,String(input.eventId || ''));
+    }
+    if (!row[14]) {
+      const recipient = row[4] ? roster[String(row[4]).trim()]?.uid : row[13];
+      const sent = validLineUid_(recipient) && masaluPushWorkflowMessage_(recipient,
+        {type:'text',text:details+'\n結果：'+status},'leave-result:'+serial);
+      if (!sent) return reply('leave_result_pending','已記錄 '+serial+' 為「'+status+'」。申請人通知尚未送達，可再點同一個審核選項重試。');
+      requests.sheet.getRange(index+2,15).setValue(new Date());
+      SpreadsheetApp.flush();
+    }
+    return reply('leave_reviewed','請假申請 '+serial+'｜'+status+'，已通知申請人。');
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 /** Notify A01–A03, skipping the individual update for a manager receiving their own acceptance card. */
