@@ -162,6 +162,46 @@ test('declined assignments disappear from the visible calendar but remain in sou
   assert.equal(data.schedule.rows[0][7],'不同意');
 });
 
+test('an employee sees the confirmed crew only on their own work dates',()=>{
+  const {ctx,row}=harness();
+  const date='2026-11-05', otherDate='2026-11-06';
+  const coworker=[...row];
+  coworker[2]='A05';
+  coworker[6]='田園';
+  const declined=[...row];
+  declined[2]='A06';
+  declined[7]='不同意';
+  const elsewhere=[...coworker];
+  elsewhere[3]=otherDate;
+  elsewhere[7]='同意';
+  const dayOff=[...declined];
+  dayOff[6]='休假';
+  dayOff[7]='待回覆';
+  row[7]='同意';
+  const data={
+    employees:{rows:[['A04','員工甲'],['A05','員工乙'],['A06','員工丙']]},
+    shifts:{rows:[['ym','玉門',false],['ty','田園',false],['off','休假',true]]},
+    display:{rows:[]},
+    schedule:{rows:[row,coworker,declined,elsewhere,dayOff]}
+  };
+  ctx.masaluLoad_=()=>data;
+  ctx.masaluRevision_=()=>'revision';
+  ctx.masaluViewer_=()=>({id:'A04',manager:false});
+  const read=()=>ctx.masaluApi('bootstrap',{},'test-token');
+  const roster=result=>Array.from(result.staff,person=>person.id);
+  assert.deepEqual(roster(read()),['A04']);
+  coworker[7]='同意';
+  assert.deepEqual(roster(read()),['A04']);
+  declined[16]='[管理已略過]';
+  const published=read();
+  assert.deepEqual(roster(published),['A04','A05']);
+  assert.deepEqual(Array.from(published.schedules,r=>[r.date,r.shiftId]),[[date,'ym'],[date,'ty']]);
+  coworker[7]='待回覆';
+  assert.deepEqual(roster(read()),['A04']);
+  ctx.masaluViewer_=()=>({id:'A03',manager:true});
+  assert.equal(read().schedules.length,4);
+});
+
 function editHarness(){
   const h=harness(), old=[false,uuid,'A04','2026-11-05','','','玉門','同意','','已發送','',1,'','','','',''];
   const records=[old];

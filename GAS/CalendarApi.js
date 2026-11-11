@@ -83,18 +83,37 @@ function masaluBootstrap_(data) {
   return {ok:true,staff,shifts,schedules,settings:{app_name:'MASALU'},revision:masaluRevision_(data),serverTime:new Date().toISOString()};
 }
 
+function masaluEmployeeCalendar_(calendar, rows, employeeId) {
+  const workShifts = calendar.shifts.filter(shift => !shift.isOff);
+  const workIds = new Set(workShifts.map(shift => shift.id));
+  const workNames = new Set(workShifts.map(shift => shift.name));
+  const ownDays = new Map();
+  for (const assignment of calendar.schedules) {
+    if (assignment.staffId === employeeId && workIds.has(assignment.shiftId)) ownDays.set(assignment.date, []);
+  }
+  for (const row of rows) {
+    if (!(row[2] || row[12]) || !workNames.has(String(row[6] || '').trim())) continue;
+    ownDays.get(masaluDate_(row[3]))?.push(row);
+  }
+  const confirmedDays = new Set([...ownDays].filter(([, assignments]) => masaluConfirmedDayRows_(assignments).length)
+    .map(([date]) => date));
+  calendar.schedules = calendar.schedules.filter(row => row.staffId === employeeId ||
+    (confirmedDays.has(row.date) && workIds.has(row.shiftId)));
+  const visibleStaff = new Set(calendar.schedules.map(row => row.staffId));
+  visibleStaff.add(employeeId);
+  calendar.staff = calendar.staff.filter(person => visibleStaff.has(person.id));
+}
+
 /** Every calendar request uses a LINE token verified against the Login channel. */
 function masaluApi(action,payload,lineAccessToken) {
   try {
     const viewer=masaluViewer_(lineAccessToken);
     if(!viewer) return {ok:false,code:'unauthorized',error:'找不到此 LINE 帳號的員工綁定，請確認使用同一個 LINE 帳號'};
     if(action==='bootstrap') {
-      const data=masaluBootstrap_();
-      if(!viewer.manager) {
-        data.staff=data.staff.filter(p=>p.id===viewer.id);
-        data.schedules=data.schedules.filter(r=>r.staffId===viewer.id);
-      }
-      return Object.assign(data,{viewer});
+      const data=masaluLoad_();
+      const calendar=masaluBootstrap_(data);
+      if(!viewer.manager) masaluEmployeeCalendar_(calendar,data.schedule.rows,viewer.id);
+      return Object.assign(calendar,{viewer});
     }
     if(action==='managerSession') return viewer.manager ? {ok:true,manager:viewer} : {ok:false,code:'unauthorized',error:'只有 A01–A03 管理員可以編輯排班'};
     if(!viewer.manager) return {ok:false,code:'unauthorized',error:'只有 A01–A03 管理員可以編輯排班'};

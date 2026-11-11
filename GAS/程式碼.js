@@ -918,15 +918,25 @@ function masaluReadyDaySummary_(date) {
   if (last < 2) return '';
   const rows = sheet.getRange(2, 1, last-1, SHIFT_APP.SHIFT_HEADERS.length).getValues()
     .filter(r => masaluDate_(r[3]) === date && r[6] && (r[2] || r[12]));
-  if (rows.some(r => String(r[7]||'') === '不同意' && !String(r[16]||'').includes('[管理已略過]'))) return '';
-  const active = rows.filter(r => String(r[7]||'') !== '不同意');
-  if (!active.length || active.some(r => String(r[7]||'') !== '同意')) return '';
+  const active = masaluConfirmedDayRows_(rows);
+  if (!active.length) return '';
   const roster = employeeIndex_();
   const details = active.map(r => {
     const employee = roster[String(r[2]||'').trim()];
     return '• '+(employee ? employee.name : String(r[12]||'臨時人員'))+'｜'+String(r[6]||'');
   }).join('\n');
   return ('📅 '+date+' 總排班已全部確認\n'+details).slice(0, 1800);
+}
+
+function masaluConfirmedDayRows_(rows) {
+  const active = [];
+  for (const row of rows) {
+    const status = String(row[7] || '').trim();
+    if (status === '不同意' && String(row[16] || '').includes('[管理已略過]')) continue;
+    if (status !== '同意') return [];
+    active.push(row);
+  }
+  return active;
 }
 
 /** Actions on decline notifications are allowed only for bound A01–A03 managers. */

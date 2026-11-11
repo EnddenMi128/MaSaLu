@@ -408,7 +408,10 @@ async function loadBootstrap(showLoading=true){
     }catch(_){ /* Storage unavailable or corrupt: request fresh data. */ }
     const res=await gasCall('bootstrap');
     applyBootstrap(res,false);
-    try{sessionStorage.setItem(cacheKey,JSON.stringify({savedAt:Date.now(),data:res}));}catch(_){ /* private mode */ }
+    const cacheData=res.viewer?.manager?res:{...res,
+      staff:res.staff.filter(person=>person.id===res.viewer?.id),
+      schedules:res.schedules.filter(row=>row.staffId===res.viewer?.id)};
+    try{sessionStorage.setItem(cacheKey,JSON.stringify({savedAt:Date.now(),data:cacheData}));}catch(_){ /* private mode */ }
   }catch(err){
     if(!hadCache){
       state.viewer=null;
