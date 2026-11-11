@@ -62,8 +62,8 @@ function masaluSwapSelection_(input, shift, roster, uid, sheet) {
   if (page>0) items.push(nav(page-1));
   if ((page+1)*10<options.length) items.push(nav(page+1));
   items.push(byShift?masaluSwapAction_(shift,'swap','重選日期'):masaluSwapAction_(shift,'swap_date','重選班別',{date}));
-  return {ok:true,code:byShift?'swap_shift':'swap_target',message:byShift?'請選擇班別\n'+date
-    :'請選擇調班對象\n'+date+' ・ '+selected[6],quickReply:{items}};
+  return {ok:true,code:byShift?'swap_shift':'swap_target',message:byShift?'想換的日期｜'+date+'\n請選擇班別。'
+    :'想換的班｜'+date+' ・ '+selected[6]+'\n請選擇調班對象。',quickReply:{items}};
 }
 
 function masaluSendSwapInvite_(shift, uid, target, roster) {
@@ -97,8 +97,9 @@ function masaluSendSwapInvite_(shift, uid, target, roster) {
     footer:{type:'box',layout:'vertical',spacing:'sm',contents:buttons}
   }};
   const sent=masaluPushWorkflowMessage_(recipient.uid,card,'swap-invite:'+inviteId);
-  return sent ? {ok:true,code:'swap_invited',message:'已詢問 '+(recipient.name||staffId)+'，等對方同意後才會立案。'}
-    : {ok:true,code:'swap_not_sent',message:'調班邀請暫時無法送出，可再點一次同一位對象重試。'};
+  const details='想換的班｜'+targetDate+' ・ '+target[6]+'\n調班對象｜'+(recipient.name||staffId)+'\n';
+  return sent ? {ok:true,code:'swap_invited',message:details+'已送出詢問，等對方同意後才會立案。'}
+    : {ok:true,code:'swap_not_sent',message:details+'調班邀請暫時無法送出，可再點一次同一位對象重試。'};
 }
 
 function masaluSwapResponse_(input) {
@@ -153,8 +154,12 @@ function masaluSwapResponse_(input) {
     }
     const text=decision==='agree' ? other+' 已同意調班。案件已登記，待團長審核。'
       : other+' 不同意這次調班。';
-    masaluPushWorkflowMessage_(sourceUid,{type:'text',text},'swap-result:'+id);
-    return {ok:true,code:'swap_answered',message:decision==='decline'?'已回覆不同意調班。'
-      : '已同意並立案，待團長審核。'+(managerPending?'部分團長通知尚未送達，可再點「同意調班」重試。':'')};
+    const sourceDetails='原本的班｜'+masaluDate_(source[3])+' ・ '+source[6];
+    const targetDetails='想換的班｜'+masaluDate_(target[3])+' ・ '+target[6];
+    masaluPushWorkflowMessage_(sourceUid,{type:'text',text:[text,sourceDetails,targetDetails].join('\n')},'swap-result:'+id);
+    const answer=decision==='decline'?'已回覆不同意調班。'
+      : '已同意並立案，待團長審核。'+(managerPending?'部分團長通知尚未送達，可再點「同意調班」重試。':'');
+    return {ok:true,code:'swap_answered',message:[answer,'你的班｜'+masaluDate_(target[3])+' ・ '+target[6],
+      '對方的班｜'+masaluDate_(source[3])+' ・ '+source[6]].join('\n')};
   } finally { lock.releaseLock(); }
 }

@@ -381,6 +381,7 @@ test('the three approved-card actions deliver their prompts to the employee thro
   assert.equal(run('leave','leave-event').delivered,true);
   assert.deepEqual(h.pushes.map(push=>push.to),[uid,uid,uid]);
   assert.deepEqual(h.pushes.map(push=>push.messages[0].quickReply.items[0].action.label),['輸入訊息','重新查詢','事假']);
+  assert.match(h.pushes[1].messages[0].text,/原本的班｜2026-11-05 ・ 玉門/);
   h.fail.add(uid);
   const fallback=run('contact','contact-event');
   assert.equal(fallback.code,'contact_open');
@@ -488,13 +489,21 @@ for (const decision of ['agree','decline']) test('swap '+decision+' only registe
   h.ctx.openBook_=()=>({getSheetByName:name=>name==='MaSaLu調班邀請'?inviteSheet:getBook().getSheetByName(name)});
 
   const choose=fields=>h.ctx.handleShiftFollowup_({...h.input,...fields});
-  assert.equal(choose({choice:'swap'}).quickReply.items[0].action.label,'2026-11-06');
+  const dates=choose({choice:'swap'});
+  assert.equal(dates.quickReply.items[0].action.label,'2026-11-06');
+  assert.match(dates.message,/原本的班｜2026-11-05 ・ 玉門/);
   const date='2026-11-06';
-  assert.equal(choose({choice:'swap_date',date}).quickReply.items[0].action.label,'田園');
-  assert.equal(choose({choice:'swap_shift',date,target:targetId}).quickReply.items[0].action.label,'對方');
+  const shifts=choose({choice:'swap_date',date});
+  assert.equal(shifts.quickReply.items[0].action.label,'田園');
+  assert.match(shifts.message,/原本的班｜2026-11-05 ・ 玉門[\s\S]*想換的日期｜2026-11-06/);
+  const people=choose({choice:'swap_shift',date,target:targetId});
+  assert.equal(people.quickReply.items[0].action.label,'對方');
+  assert.match(people.message,/原本的班｜2026-11-05 ・ 玉門[\s\S]*想換的班｜2026-11-06 ・ 田園/);
   const submit={choice:'swap_target',date,target:targetId,targetVersion:2};
   assert.equal(choose({...submit,targetVersion:1}).code,'swap_expired');
-  assert.equal(choose(submit).code,'swap_invited');
+  const invited=choose(submit);
+  assert.equal(invited.code,'swap_invited');
+  assert.match(invited.message,/原本的班｜2026-11-05 ・ 玉門[\s\S]*想換的班｜2026-11-06 ・ 田園[\s\S]*調班對象｜對方/);
   assert.equal(h.requests.length,0);
   assert.equal(h.pushes[0].to,targetUid);
   const actions=h.pushes[0].messages[0].contents.footer.contents;

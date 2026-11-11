@@ -744,7 +744,10 @@ function handleShiftFollowup_(input) {
         ? '訊息已轉送給 '+sent+' 位團長，其餘團長暫時無法收到。' : '訊息已轉送給團長。';
       return masaluContactReply_(shift,'contact_sent',message);
     }
-    if (choice.startsWith('swap')) return masaluSwapSelection_(input,shift,roster,uid,sheet);
+    if (choice.startsWith('swap')) {
+      const result = masaluSwapSelection_(input,shift,roster,uid,sheet);
+      return {...result,message:'🔄 調班申請\n原本的班｜'+shift.date+' ・ '+shift.shift+'\n\n'+result.message};
+    }
     if (choice === 'leave') {
       return {ok:true,code:'leave_types',message:'請選擇假別',quickReply:{items:
         Object.entries(MASALU_LEAVE_TYPES).map(([type,label])=>({
