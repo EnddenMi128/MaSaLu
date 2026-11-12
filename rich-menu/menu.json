@@ -1,0 +1,212 @@
+{
+  "alias": "masalu-2026-11-13",
+  "image": "calendar-2026-11-13.png",
+  "start": "2026-11-13",
+  "end": "2026-11-26",
+  "menu": {
+    "size": {
+      "width": 2500,
+      "height": 1250
+    },
+    "selected": true,
+    "name": "MaSaLu 2026-11-13 – 2026-11-26",
+    "chatBarText": "排班月曆",
+    "areas": [
+      {
+        "bounds": {
+          "x": 95,
+          "y": 244,
+          "width": 318,
+          "height": 345
+        },
+        "action": {
+          "type": "uri",
+          "label": "11 月 13 日",
+          "uri": "https://liff.line.me/2010020470-VBPZRUQ9/?date=2026-11-13&from=richmenu"
+        }
+      },
+      {
+        "bounds": {
+          "x": 427,
+          "y": 244,
+          "width": 318,
+          "height": 345
+        },
+        "action": {
+          "type": "uri",
+          "label": "11 月 14 日",
+          "uri": "https://liff.line.me/2010020470-VBPZRUQ9/?date=2026-11-14&from=richmenu"
+        }
+      },
+      {
+        "bounds": {
+          "x": 759,
+          "y": 244,
+          "width": 318,
+          "height": 345
+        },
+        "action": {
+          "type": "uri",
+          "label": "11 月 15 日",
+          "uri": "https://liff.line.me/2010020470-VBPZRUQ9/?date=2026-11-15&from=richmenu"
+        }
+      },
+      {
+        "bounds": {
+          "x": 1091,
+          "y": 244,
+          "width": 318,
+          "height": 345
+        },
+        "action": {
+          "type": "uri",
+          "label": "11 月 16 日",
+          "uri": "https://liff.line.me/2010020470-VBPZRUQ9/?date=2026-11-16&from=richmenu"
+        }
+      },
+      {
+        "bounds": {
+          "x": 1423,
+          "y": 244,
+          "width": 318,
+          "height": 345
+        },
+        "action": {
+          "type": "uri",
+          "label": "11 月 17 日",
+          "uri": "https://liff.line.me/2010020470-VBPZRUQ9/?date=2026-11-17&from=richmenu"
+        }
+      },
+      {
+        "bounds": {
+          "x": 1755,
+          "y": 244,
+          "width": 318,
+          "height": 345
+        },
+        "action": {
+          "type": "uri",
+          "label": "11 月 18 日",
+          "uri": "https://liff.line.me/2010020470-VBPZRUQ9/?date=2026-11-18&from=richmenu"
+        }
+      },
+      {
+        "bounds": {
+          "x": 2087,
+          "y": 244,
+          "width": 318,
+          "height": 345
+        },
+        "action": {
+          "type": "uri",
+          "label": "11 月 19 日",
+          "uri": "https://liff.line.me/2010020470-VBPZRUQ9/?date=2026-11-19&from=richmenu"
+        }
+      },
+      {
+        "bounds": {
+          "x": 95,
+          "y": 621,
+          "width": 318,
+          "height": 345
+        },
+        "action": {
+          "type": "uri",
+          "label": "11 月 20 日",
+          "uri": "https://liff.line.me/2010020470-VBPZRUQ9/?date=2026-11-20&from=richmenu"
+        }
+      },
+      {
+        "bounds": {
+          "x": 427,
+          "y": 621,
+          "width": 318,
+          "height": 345
+        },
+        "action": {
+          "type": "uri",
+          "label": "11 月 21 日",
+          "uri": "https://liff.line.me/2010020470-VBPZRUQ9/?date=2026-11-21&from=richmenu"
+        }
+      },
+      {
+        "bounds": {
+          "x": 759,
+          "y": 621,
+          "width": 318,
+          "height": 345
+        },
+        "action": {
+          "type": "uri",
+          "label": "11 月 22 日",
+          "uri": "https://liff.line.me/2010020470-VBPZRUQ9/?date=2026-11-22&from=richmenu"
+        }
+      },
+      {
+        "bounds": {
+          "x": 1091,
+          "y": 621,
+          "width": 318,
+          "height": 345
+        },
+        "action": {
+          "type": "uri",
+          "label": "11 月 23 日",
+          "uri": "https://liff.line.me/2010020470-VBPZRUQ9/?date=2026-11-23&from=richmenu"
+        }
+      },
+      {
+        "bounds": {
+          "x": 1423,
+          "y": 621,
+          "width": 318,
+          "height": 345
+        },
+        "action": {
+          "type": "uri",
+          "label": "11 月 24 日",
+          "uri": "https://liff.line.me/2010020470-VBPZRUQ9/?date=2026-11-24&from=richmenu"
+        }
+      },
+      {
+        "bounds": {
+          "x": 1755,
+          "y": 621,
+          "width": 318,
+          "height": 345
+        },
+        "action": {
+          "type": "uri",
+          "label": "11 月 25 日",
+          "uri": "https://liff.line.me/2010020470-VBPZRUQ9/?date=2026-11-25&from=richmenu"
+        }
+      },
+      {
+        "bounds": {
+          "x": 2087,
+          "y": 621,
+          "width": 318,
+          "height": 345
+        },
+        "action": {
+          "type": "uri",
+          "label": "11 月 26 日",
+          "uri": "https://liff.line.me/2010020470-VBPZRUQ9/?date=2026-11-26&from=richmenu"
+        }
+      },
+      {
+        "bounds": {
+          "x": 88,
+          "y": 1032,
+          "width": 2324,
+          "height": 133
+        },
+        "action": {
+          "type": "uri",
+          "label": "開啟完整月曆",
+          "uri": "https://liff.line.me/2010020470-VBPZRUQ9/"
+        }
+      }
+    ]
+  }
+}

@@ -268,9 +268,8 @@ const state = {
 const now = new Date();
 let viewYear = now.getFullYear();
 let viewMonth = now.getMonth();
-const initialDate = window.MASALU_INITIAL_DATE || new URLSearchParams(location.search).get('date');
-let selected = /^\d{4}-\d{2}-\d{2}$/.test(initialDate || '') ? initialDate : keyOf(now);
-if(initialDate && selected === initialDate){ const d=dateFromKey(selected); viewYear=d.getFullYear(); viewMonth=d.getMonth(); }
+let selected = keyOf(now);
+let linkedDate = '';
 let touchState = null;
 
 const $ = s => document.querySelector(s);
@@ -279,6 +278,16 @@ const $$ = s => [...document.querySelectorAll(s)];
 function pad(n){ return String(n).padStart(2,'0'); }
 function keyOf(d){ return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`; }
 function dateFromKey(k){ const [y,m,d]=k.split('-').map(Number); return new Date(y,m-1,d); }
+function selectLinkedDate(){
+  if(linkedDate)return;
+  const date=window.MASALU_INITIAL_DATE || new URLSearchParams(location.search).get('date');
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(date||''))return;
+  const parsed=dateFromKey(date);
+  if(keyOf(parsed)!==date)return;
+  linkedDate=selected=date;
+  viewYear=parsed.getFullYear();
+  viewMonth=parsed.getMonth();
+}
 function staffIndex(id){ return state.staff.findIndex(p => p.id === id); }
 function sortIds(ids){
   return [...new Set(ids)]
@@ -396,6 +405,7 @@ async function loadBootstrap(){
   let hadCache=false;
   try{
     const token=await ensureLineIdentity();
+    selectLinkedDate();
     const fresh=gasCall('bootstrap').then(data=>({data}),error=>({error}));
     let cacheKey;
     try{
@@ -409,6 +419,9 @@ async function loadBootstrap(){
     const {data:res,error}=await fresh;
     if(error) throw error;
     applyBootstrap(res,false);
+    if(linkedDate && selected===linkedDate && new URLSearchParams(location.search).get('from')==='richmenu'){
+      document.querySelector('.detail-card').scrollIntoView({block:'start'});
+    }
     const cacheData=res.viewer?.manager?res:{...res,
       staff:res.staff.filter(person=>person.id===res.viewer?.id),
       schedules:res.schedules.filter(row=>row.staffId===res.viewer?.id)};
@@ -917,7 +930,7 @@ $('#todayBtn').onclick=()=>{
 
 $('#reloadBtn').onclick=()=>loadBootstrap();
 
-(function boot(){ renderCalendar(); renderDetail(); loadBootstrap(); })();
+(function boot(){ selectLinkedDate(); renderCalendar(); renderDetail(); loadBootstrap(); })();
 </script>
 
 

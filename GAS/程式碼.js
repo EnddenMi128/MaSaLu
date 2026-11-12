@@ -40,6 +40,8 @@ ui.createMenu('📨 團長排班通知')
     .addItem('建立臨時收件人排班（不發送）', 'createTemporaryShiftFromSelected')
     .addItem('清理過期臨時 UID', 'cleanupExpiredTempRecipients')
     .addItem('安裝每日臨時資料清理', 'installDailyCleanupTrigger')
+    .addSeparator()
+    .addItem('發布兩週 LINE 月曆選單', 'masaluPublishCalendarRichMenu')
     .addToUi();
 }
 
