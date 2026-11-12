@@ -47,10 +47,11 @@ function harness({mockManagerNotice=true}={}) {
   ctx.shiftSheet_=()=>sheet;
   ctx.findShiftRow_=()=>2;
   ctx.employeeIndex_=()=>({A04:{name:'員工甲',uid},A01:{name:'團長',uid:managerUid}});
+  const parseCalendarDate=ctx.masaluDate_;
   ctx.masaluDate_=x=>String(x);
   ctx.safeLog_=(...items)=>logs.push(items);
   if (mockManagerNotice) ctx.masaluNotifyManagers_=x=>{notices.push(x);return {sent:1,failed:0};};
-  return {ctx,row,logs,notices,serialRows,ledger};
+  return {ctx,row,logs,notices,serialRows,ledger,parseCalendarDate};
 }
 
 test('LINE binding requires the name and unused code from the same employee row', () => {
@@ -160,6 +161,37 @@ test('declined assignments disappear from the visible calendar but remain in sou
   h.row[7]='不同意';
   assert.equal(h.ctx.masaluBootstrap_(data).schedules.length,0);
   assert.equal(data.schedule.rows[0][7],'不同意');
+});
+
+test('calendar dates use the loaded spreadsheet time zone and batched LINE checks still enforce the channel',()=>{
+  const {ctx,row,parseCalendarDate}=harness();
+  row[3]=new Date('2026-11-04T16:30:00Z');
+  row[7]='同意';
+  ctx.openBook_=()=>{throw Error('calendar rendering should reuse its loaded time zone');};
+  ctx.Utilities.formatDate=(date,timeZone,format)=>{
+    assert.equal(timeZone,'Asia/Taipei');
+    assert.equal(format,'yyyy-MM-dd');
+    return new Intl.DateTimeFormat('en-CA',{timeZone,year:'numeric',month:'2-digit',day:'2-digit'}).format(date);
+  };
+  ctx.masaluDate_=parseCalendarDate;
+  const employees={rows:[['A04','員工甲','',uid]]};
+  ctx.masaluTable_=()=>employees;
+  ctx.masaluLoad_=()=>({employees,shifts:{rows:[['ym','玉門',false]]},display:{rows:[]},
+    schedule:{rows:[row]},timeZone:'Asia/Taipei'});
+  ctx.masaluRevision_=()=> 'revision';
+  const response=(data,status=200)=>({getResponseCode:()=>status,getContentText:()=>JSON.stringify(data)});
+  let channel='2010020470', batches=0;
+  ctx.UrlFetchApp.fetchAll=requests=>{
+    batches++;
+    assert.equal(requests.length,2);
+    assert.match(requests[0].url,/\/verify\?access_token=test-token$/);
+    assert.equal(requests[1].headers.Authorization,'Bearer test-token');
+    return [response({client_id:channel,expires_in:60}),response({userId:uid})];
+  };
+  assert.equal(ctx.masaluApi('bootstrap',{},'test-token').schedules[0].date,'2026-11-05');
+  assert.equal(batches,1);
+  channel='different-channel';
+  assert.equal(ctx.masaluApi('bootstrap',{},'test-token').code,'unauthorized');
 });
 
 test('an employee sees the confirmed crew only on their own work dates',()=>{

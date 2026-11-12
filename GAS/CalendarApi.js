@@ -34,8 +34,10 @@ function masaluTable_(name,headers,book) {
   if(headers.some((h,i)=>data[0][i]!==h)) throw new Error(name+' 欄位不符，已停止操作');
   return {sheet,rows:data.slice(1)};
 }
-function masaluDate_(value) {
-  if(value instanceof Date && Number.isFinite(value.getTime())) return Utilities.formatDate(value,openBook_().getSpreadsheetTimeZone(),'yyyy-MM-dd');
+function masaluDate_(value,timeZone) {
+  if(value instanceof Date && Number.isFinite(value.getTime())) {
+    return Utilities.formatDate(value,timeZone || openBook_().getSpreadsheetTimeZone(),'yyyy-MM-dd');
+  }
   const text=String(value||'').trim();
   const match=/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/.exec(text);
   if(!match) return '';
@@ -50,7 +52,7 @@ function masaluLoad_() {
   const shifts=masaluTable_(MASALU.SHIFTS,MASALU.SHIFT_HEADERS,book);
   const display=masaluTable_(MASALU.DISPLAY,MASALU.DISPLAY_HEADERS,book);
   const schedule=masaluTable_(SHIFT_APP.SHIFTS,SHIFT_APP.SHIFT_HEADERS,book);
-  return {employees,shifts,display,schedule};
+  return {employees,shifts,display,schedule,timeZone:book.getSpreadsheetTimeZone()};
 }
 function masaluRevision_(data) {
   const json=JSON.stringify([data.employees.rows,data.shifts.rows,data.display.rows,data.schedule.rows]);
@@ -71,7 +73,7 @@ function masaluBootstrap_(data) {
   });
   const schedules=[];
   data.schedule.rows.forEach((r,i)=>{
-    const date=masaluDate_(r[3]),shift=shifts.find(s=>s.name===String(r[6]||'').trim());
+    const date=masaluDate_(r[3],data.timeZone),shift=shifts.find(s=>s.name===String(r[6]||'').trim());
     if(!date||!shift || String(r[7]||'').trim()==='不同意')return;
     let staffId=String(r[2]||'').trim();
     if(!staffId && r[12]) {
@@ -83,7 +85,7 @@ function masaluBootstrap_(data) {
   return {ok:true,staff,shifts,schedules,settings:{app_name:'MASALU'},revision:masaluRevision_(data),serverTime:new Date().toISOString()};
 }
 
-function masaluEmployeeCalendar_(calendar, rows, employeeId) {
+function masaluEmployeeCalendar_(calendar, data, employeeId) {
   const workShifts = calendar.shifts.filter(shift => !shift.isOff);
   const workIds = new Set(workShifts.map(shift => shift.id));
   const workNames = new Set(workShifts.map(shift => shift.name));
@@ -91,9 +93,9 @@ function masaluEmployeeCalendar_(calendar, rows, employeeId) {
   for (const assignment of calendar.schedules) {
     if (assignment.staffId === employeeId && workIds.has(assignment.shiftId)) ownDays.set(assignment.date, []);
   }
-  for (const row of rows) {
+  for (const row of data.schedule.rows) {
     if (!(row[2] || row[12]) || !workNames.has(String(row[6] || '').trim())) continue;
-    ownDays.get(masaluDate_(row[3]))?.push(row);
+    ownDays.get(masaluDate_(row[3],data.timeZone))?.push(row);
   }
   const confirmedDays = new Set([...ownDays].filter(([, assignments]) => masaluConfirmedDayRows_(assignments).length)
     .map(([date]) => date));
@@ -112,7 +114,7 @@ function masaluApi(action,payload,lineAccessToken) {
     if(action==='bootstrap') {
       const data=masaluLoad_();
       const calendar=masaluBootstrap_(data);
-      if(!viewer.manager) masaluEmployeeCalendar_(calendar,data.schedule.rows,viewer.id);
+      if(!viewer.manager) masaluEmployeeCalendar_(calendar,data,viewer.id);
       return Object.assign(calendar,{viewer});
     }
     if(action==='managerSession') return viewer.manager ? {ok:true,manager:viewer} : {ok:false,code:'unauthorized',error:'只有 A01–A03 管理員可以編輯排班'};
@@ -159,7 +161,7 @@ function masaluSaveDay_(data,payload,clear) {
   });
   const removals=[],existing=new Set(),removed=[];
   data.schedule.rows.forEach((r,i)=>{
-    if(masaluDate_(r[3])!==date) return;
+    if(masaluDate_(r[3],data.timeZone)!==date) return;
     const staffId=String(r[2]||'').trim() || (r[12]?'temporary:'+String(r[1]||i):'');
     const pair=JSON.stringify([staffId,String(r[6]||'').trim()]);
     if(!clear && String(r[7]||'').trim()==='不同意') {
@@ -229,12 +231,13 @@ function masaluViewer_(accessToken) {
   if(!token || token.length>4096) return null;
   const channel=PropertiesService.getScriptProperties().getProperty('MASALU_LINE_LOGIN_CHANNEL_ID') || '2010020470';
   try {
-    const check=UrlFetchApp.fetch('https://api.line.me/oauth2/v2.1/verify?access_token='+encodeURIComponent(token),{muteHttpExceptions:true});
-    if(check.getResponseCode()!==200) return null;
+    const [check,response] = UrlFetchApp.fetchAll([
+      {url:'https://api.line.me/oauth2/v2.1/verify?access_token='+encodeURIComponent(token),muteHttpExceptions:true},
+      {url:'https://api.line.me/v2/profile',headers:{Authorization:'Bearer '+token},muteHttpExceptions:true}
+    ]);
+    if(check.getResponseCode()!==200 || response.getResponseCode()!==200) return null;
     const verified=JSON.parse(check.getContentText());
-    if(String(verified.client_id)!==channel || Number(verified.expires_in)<=0) return null;
-    const response=UrlFetchApp.fetch('https://api.line.me/v2/profile',{headers:{Authorization:'Bearer '+token},muteHttpExceptions:true});
-    if(response.getResponseCode()!==200) return null;
+    if(String(verified.client_id)!==channel || !(Number(verified.expires_in)>0)) return null;
     const profile=JSON.parse(response.getContentText());
     if(!validLineUid_(String(profile.userId||''))) return null;
     const matches=masaluTable_(SHIFT_APP.EMPLOYEES,SHIFT_APP.EMP_HEADERS).rows.filter(r=>String(r[3]||'').trim()===profile.userId);

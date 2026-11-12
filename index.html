@@ -3,6 +3,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,minimum-scale=1,user-scalable=no,viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <title>MASALU 排班月曆</title>
+<link rel="preconnect" href="https://leader-shift-line-webhook.edn869728.workers.dev" crossorigin>
 <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
 <style>
 :root{
@@ -246,7 +247,7 @@ input{width:100%;min-width:0;border:1px solid #e2e5ea;border-radius:11px;padding
 </div>
 
 <div class="toast" id="toast"></div>
-<div class="loading show" id="loading">儲存中…</div>
+<div class="loading" id="loading">儲存中…</div>
 
 <script>
 /**
@@ -367,8 +368,7 @@ function gasCall(action, payload = {}, timeoutMs = 15000){
 }
 
 /** Session-only preview: names and manager schedules are never shared across LINE identities. */
-async function bootstrapCacheKey(){
-  const token=await ensureLineIdentity();
+async function bootstrapCacheKey(token){
   const digest=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(token));
   activeCacheKey='masalu:v2:'+Array.from(new Uint8Array(digest)).slice(0,16)
     .map(n=>n.toString(16).padStart(2,'0')).join('');
@@ -393,25 +393,29 @@ function applyBootstrap(res,cached=false){
   renderCalendar();
   renderDetail();
 }
-async function loadBootstrap(showLoading=true){
-  if(showLoading)setLoading(true);
+async function loadBootstrap(){
+  $('#reloadBtn').disabled=true;
+  $('#statusText').textContent='正在讀取排班…';
   let hadCache=false;
   try{
-    const cacheKey=await bootstrapCacheKey();
+    const token=await ensureLineIdentity();
+    const fresh=gasCall('bootstrap').then(data=>({data}),error=>({error}));
+    let cacheKey;
     try{
+      cacheKey=await bootstrapCacheKey(token);
       const entry=JSON.parse(sessionStorage.getItem(cacheKey)||'null');
       if(entry?.savedAt && Date.now()-entry.savedAt<BOOT_CACHE_MS && entry.data?.ok && entry.data?.viewer){
         applyBootstrap(entry.data,true);
         hadCache=true;
-        setLoading(false);
       }
     }catch(_){ /* Storage unavailable or corrupt: request fresh data. */ }
-    const res=await gasCall('bootstrap');
+    const {data:res,error}=await fresh;
+    if(error) throw error;
     applyBootstrap(res,false);
     const cacheData=res.viewer?.manager?res:{...res,
       staff:res.staff.filter(person=>person.id===res.viewer?.id),
       schedules:res.schedules.filter(row=>row.staffId===res.viewer?.id)};
-    try{sessionStorage.setItem(cacheKey,JSON.stringify({savedAt:Date.now(),data:cacheData}));}catch(_){ /* private mode */ }
+    try{if(cacheKey)sessionStorage.setItem(cacheKey,JSON.stringify({savedAt:Date.now(),data:cacheData}));}catch(_){ /* private mode */ }
   }catch(err){
     if(!hadCache){
       state.viewer=null;
@@ -422,7 +426,7 @@ async function loadBootstrap(showLoading=true){
     }else $('#statusText').textContent='快取預覽 · 同步暫時失敗';
     toast(err.message);
   }finally{
-    if(showLoading)setLoading(false);
+    $('#reloadBtn').disabled=false;
   }
 }
 
@@ -518,6 +522,7 @@ function renderDetail(){
   $('#detailDate').textContent=`${d.getFullYear()} 年 ${d.getMonth()+1} 月 ${d.getDate()} 日`;
 
   const body=$('#detailBody');
+  if(!state.viewer)return;
   const rows=rowsForDate(selected);
 
   if(!rows.length){
@@ -744,7 +749,7 @@ async function runMutation(action,payload){
   setLoading(true);
   try{
     await gasCall(action,{...payload});
-    await loadBootstrap(false);
+    await loadBootstrap();
 
     if($('#sheetwrap').classList.contains('show')){
       state.draft=makeDraft();
@@ -772,7 +777,7 @@ $('#addShiftBtn').onclick=async()=>{
       isOff:false
     });
     input.value='';
-    await loadBootstrap(false);
+    await loadBootstrap();
     state.draft=makeDraft();
     renderEditor();
     toast('已新增班別');
@@ -802,7 +807,7 @@ $('#addStaffBtn').onclick=async()=>{
     $('#newStaffName').value='';
     $('#newStaffShort').value='';
 
-    await loadBootstrap(false);
+    await loadBootstrap();
     state.draft=makeDraft();
     renderEditor();
     toast('已新增人員');
@@ -914,9 +919,9 @@ $('#todayBtn').onclick=()=>{
   renderDetail();
 };
 
-$('#reloadBtn').onclick=()=>loadBootstrap(true);
+$('#reloadBtn').onclick=()=>loadBootstrap();
 
-(function boot(){ renderCalendar(); renderDetail(); loadBootstrap(true); })();
+(function boot(){ renderCalendar(); renderDetail(); loadBootstrap(); })();
 </script>
 
 
