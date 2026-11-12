@@ -59,7 +59,6 @@ button:disabled{opacity:.45}
 .person-chip .person-name{min-width:0;overflow-wrap:anywhere}
 .person-chip small{color:#4b5563;font-size:13px;white-space:nowrap}
 .detail-card .empty{padding:18px 0 4px;color:var(--muted);font-size:15px}
-.calendar-add{display:none;margin:8px 0 0 auto;min-height:44px;padding:0 12px;border:0;border-radius:11px;background:#111827;color:#fff;font-size:13px;font-weight:900}
 .status{font-size:11px;color:var(--muted);padding:10px 2px 0;text-align:center}
 
 .sheetwrap{position:fixed;inset:0;background:rgba(17,24,39,.35);display:none;z-index:20}
@@ -166,7 +165,6 @@ input{width:100%;min-width:0;border:1px solid #e2e5ea;border-radius:11px;padding
     <div class="week"><div>日</div><div>一</div><div>二</div><div>三</div><div>四</div><div>五</div><div>六</div></div>
     <div class="grid" id="calendar"></div>
   </section>
-  <button class="calendar-add" id="fab">＋ 新增 / 編輯排班</button>
 
   <section class="detail-card">
     <div class="detail-top">
@@ -386,7 +384,6 @@ function applyBootstrap(res,cached=false){
   state.revision=res.revision||null;
   const manager=Boolean(state.viewer?.manager);
   $('#editBtn').style.display=manager?'inline-flex':'none';
-  $('#fab').style.display=manager?'block':'none';
   $('#appName').title=manager?'排班管理員':'個人排班';
   $('#appName').textContent=state.settings.app_name||'MASALU';
   $('#statusText').textContent=`${manager?'管理月曆':'個人月曆'} · ${state.viewer?.name||''} · ${cached?'快取預覽，正在同步':'已同步'}`;
@@ -420,7 +417,6 @@ async function loadBootstrap(){
     if(!hadCache){
       state.viewer=null;
       $('#editBtn').style.display='none';
-      $('#fab').style.display='none';
       $('#statusText').textContent='連線失敗';
       $('#detailBody').innerHTML=`<div class="empty">${escapeHtml(err.message)}</div>`;
     }else $('#statusText').textContent='快取預覽 · 同步暫時失敗';
@@ -524,6 +520,7 @@ function renderDetail(){
   const body=$('#detailBody');
   if(!state.viewer)return;
   const rows=rowsForDate(selected);
+  $('#editBtn').textContent=rows.length?'編輯排班':'新增排班';
 
   if(!rows.length){
     body.innerHTML='<div class="empty">這一天尚未排班。</div>';
@@ -892,7 +889,6 @@ $('#confirmClear').onclick=async()=>{
 };
 
 $('#editBtn').onclick=openEditor;
-$('#fab').onclick=openEditor;
 
 $('#closeBtn').onclick=()=>$('#sheetwrap').classList.remove('show');
 $('#sheetwrap').onclick=e=>{
