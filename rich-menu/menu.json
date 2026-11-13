@@ -1,7 +1,7 @@
 {
-  "alias": "masalu-tall-v5-2026-11-08",
-  "image": "calendar-2026-11-08-tall-v5.jpg",
-  "personal": "personal-grid-tall-v5-2026-11-08.json",
+  "alias": "masalu-tall-v6-2026-11-08",
+  "image": "calendar-2026-11-08-tall-v6.jpg",
+  "personal": "personal-grid-tall-v6-2026-11-08.json",
   "start": "2026-11-08",
   "end": "2026-11-21",
   "menu": {
@@ -269,7 +269,7 @@
         },
         "action": {
           "type": "message",
-          "label": "個人班表",
+          "label": "更新/個人班表",
           "text": "個人班表"
         }
       }
