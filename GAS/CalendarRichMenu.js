@@ -69,9 +69,13 @@ function masaluRefreshOwnCalendarMenu_(uid) {
       failed:'圖文選單暫時無法套用。稍後可再輸入「個人班表」。',
       linked:'已套用個人班表（'+page.start+' 至 '+page.end+'），請返回 LINE 聊天列表再開啟聊天室查看。'
     };
-    const list = entries.map(({date,sites,confirmed})=>
-      date.slice(5).replace('-','/')+'｜'+sites.join('、')+'｜'+(confirmed?'已確認':'待回覆'));
-    return {ok:true,code:status,message:list.length ? ['個人班表',...list,'',messages[status]].join('\n') : messages[status]};
+    const list = entries.map(({date,groups,confirmed})=>[
+      date.slice(5).replace('-','/')+'｜'+(confirmed?'已確認':'待回覆'),
+      ...groups.map(({location,people})=>location+'｜'+people.map(person=>person.name).join('、'))
+    ].join('\n'));
+    const details = list.join('\n\n');
+    const text = details.length > 1500 ? details.slice(0,1500)+'…\n開啟排班月曆查看完整名單。' : details;
+    return {ok:true,code:status,message:list.length ? ['個人班表',text,'',messages[status]].join('\n') : messages[status]};
   } finally {
     lock.releaseLock();
   }

@@ -88,10 +88,24 @@ def generate(today, font_path, font_index):
     (output / "menu.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
+def generate_roster_glyphs(font_path, font_index):
+    font = ImageFont.truetype(font_path, 16, index=font_index)
+    glyphs = bytearray()
+    for code in [*range(32, 127), *range(0x3400, 0xA000)]:
+        mask = Image.new("1", (16, 18))
+        ImageDraw.Draw(mask).text((8, 9), chr(code), font=font, fill=1, anchor="mm")
+        glyphs.extend(mask.tobytes())
+    path = Path(__file__).parent / "roster-glyphs.gz"
+    path.write_bytes(gzip.compress(glyphs, mtime=0))
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("today", type=date.fromisoformat, help="Any date in the first week (YYYY-MM-DD)")
     parser.add_argument("--font", default="/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc")
     parser.add_argument("--font-index", default=3, type=int)
+    parser.add_argument("--roster-font", action="store_true", help="Also regenerate the roster glyph atlas")
     args = parser.parse_args()
     generate(args.today, args.font, args.font_index)
+    if args.roster_font:
+        generate_roster_glyphs(args.font, args.font_index)
