@@ -767,11 +767,7 @@ function handleShiftFollowup_(input) {
       return {...result,message:'🔄 調班申請\n原本的班｜'+shift.date+' ・ '+shift.shiftLabel+'\n\n'+result.message};
     }
     if (choice === 'leave') {
-      return {ok:true,code:'leave_types',message:'請選擇假別',quickReply:{items:
-        Object.entries(MASALU_LEAVE_TYPES).map(([type,label])=>({
-          type:'action',action:masaluFollowupAction_(shift,'leave_'+type,label)
-        }))
-      }};
+      return masaluLeaveTypeOptions_(shift);
     }
     const kind = choice.split('_')[0];
     const leaveType = kind === 'leave' ? MASALU_LEAVE_TYPES[choice.split('_')[1]] : '';
@@ -782,6 +778,13 @@ function handleShiftFollowup_(input) {
   } finally {
     lock.releaseLock();
   }
+}
+
+function masaluLeaveTypeOptions_(shift) {
+  return {ok:true,code:'leave_types',message:[shift.date,shift.shift,'請選擇假別'].filter(Boolean).join('｜'),
+    quickReply:{items:Object.entries(MASALU_LEAVE_TYPES).map(([type,label])=>({
+      type:'action',action:masaluFollowupAction_(shift,'leave_'+type,label)
+    }))}};
 }
 
 function masaluContactReply_(shift, code, message) {
