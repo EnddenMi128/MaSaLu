@@ -1,12 +1,12 @@
 {
-  "alias": "masalu-2026-11-13",
-  "image": "calendar-2026-11-13.png",
+  "alias": "masalu-art-2026-11-13",
+  "image": "calendar-2026-11-13-masalu.jpg",
   "start": "2026-11-13",
   "end": "2026-11-26",
   "menu": {
     "size": {
       "width": 2500,
-      "height": 1250
+      "height": 843
     },
     "selected": true,
     "name": "MaSaLu 2026-11-13 – 2026-11-26",
@@ -14,10 +14,10 @@
     "areas": [
       {
         "bounds": {
-          "x": 95,
-          "y": 244,
-          "width": 318,
-          "height": 345
+          "x": 25,
+          "y": 264,
+          "width": 338,
+          "height": 221
         },
         "action": {
           "type": "uri",
@@ -27,10 +27,10 @@
       },
       {
         "bounds": {
-          "x": 427,
-          "y": 244,
-          "width": 318,
-          "height": 345
+          "x": 377,
+          "y": 264,
+          "width": 338,
+          "height": 221
         },
         "action": {
           "type": "uri",
@@ -40,10 +40,10 @@
       },
       {
         "bounds": {
-          "x": 759,
-          "y": 244,
-          "width": 318,
-          "height": 345
+          "x": 729,
+          "y": 264,
+          "width": 338,
+          "height": 221
         },
         "action": {
           "type": "uri",
@@ -53,10 +53,10 @@
       },
       {
         "bounds": {
-          "x": 1091,
-          "y": 244,
-          "width": 318,
-          "height": 345
+          "x": 1081,
+          "y": 264,
+          "width": 338,
+          "height": 221
         },
         "action": {
           "type": "uri",
@@ -66,10 +66,10 @@
       },
       {
         "bounds": {
-          "x": 1423,
-          "y": 244,
-          "width": 318,
-          "height": 345
+          "x": 1433,
+          "y": 264,
+          "width": 338,
+          "height": 221
         },
         "action": {
           "type": "uri",
@@ -79,10 +79,10 @@
       },
       {
         "bounds": {
-          "x": 1755,
-          "y": 244,
-          "width": 318,
-          "height": 345
+          "x": 1785,
+          "y": 264,
+          "width": 338,
+          "height": 221
         },
         "action": {
           "type": "uri",
@@ -92,10 +92,10 @@
       },
       {
         "bounds": {
-          "x": 2087,
-          "y": 244,
-          "width": 318,
-          "height": 345
+          "x": 2137,
+          "y": 264,
+          "width": 338,
+          "height": 221
         },
         "action": {
           "type": "uri",
@@ -105,10 +105,10 @@
       },
       {
         "bounds": {
-          "x": 95,
-          "y": 621,
-          "width": 318,
-          "height": 345
+          "x": 25,
+          "y": 497,
+          "width": 338,
+          "height": 221
         },
         "action": {
           "type": "uri",
@@ -118,10 +118,10 @@
       },
       {
         "bounds": {
-          "x": 427,
-          "y": 621,
-          "width": 318,
-          "height": 345
+          "x": 377,
+          "y": 497,
+          "width": 338,
+          "height": 221
         },
         "action": {
           "type": "uri",
@@ -131,10 +131,10 @@
       },
       {
         "bounds": {
-          "x": 759,
-          "y": 621,
-          "width": 318,
-          "height": 345
+          "x": 729,
+          "y": 497,
+          "width": 338,
+          "height": 221
         },
         "action": {
           "type": "uri",
@@ -144,10 +144,10 @@
       },
       {
         "bounds": {
-          "x": 1091,
-          "y": 621,
-          "width": 318,
-          "height": 345
+          "x": 1081,
+          "y": 497,
+          "width": 338,
+          "height": 221
         },
         "action": {
           "type": "uri",
@@ -157,10 +157,10 @@
       },
       {
         "bounds": {
-          "x": 1423,
-          "y": 621,
-          "width": 318,
-          "height": 345
+          "x": 1433,
+          "y": 497,
+          "width": 338,
+          "height": 221
         },
         "action": {
           "type": "uri",
@@ -170,10 +170,10 @@
       },
       {
         "bounds": {
-          "x": 1755,
-          "y": 621,
-          "width": 318,
-          "height": 345
+          "x": 1785,
+          "y": 497,
+          "width": 338,
+          "height": 221
         },
         "action": {
           "type": "uri",
@@ -183,10 +183,10 @@
       },
       {
         "bounds": {
-          "x": 2087,
-          "y": 621,
-          "width": 318,
-          "height": 345
+          "x": 2137,
+          "y": 497,
+          "width": 338,
+          "height": 221
         },
         "action": {
           "type": "uri",
@@ -196,10 +196,10 @@
       },
       {
         "bounds": {
-          "x": 88,
-          "y": 1032,
-          "width": 2324,
-          "height": 133
+          "x": 25,
+          "y": 733,
+          "width": 2450,
+          "height": 91
         },
         "action": {
           "type": "uri",

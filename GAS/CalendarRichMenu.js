@@ -28,7 +28,7 @@ function masaluPrepareCalendarRichMenu_(page,assets,token) {
   const id = JSON.parse(created.getContentText()).richMenuId;
   try {
     const uploaded = UrlFetchApp.fetch('https://api-data.line.me/v2/bot/richmenu/'+id+'/content',{
-      method:'post',contentType:'image/png',payload:image.getContent(),
+      method:'post',contentType:page.image.endsWith('.jpg')?'image/jpeg':'image/png',payload:image.getContent(),
       headers:{Authorization:'Bearer '+token},muteHttpExceptions:true
     });
     if (uploaded.getResponseCode() !== 200) throw new Error('月曆圖片上傳失敗，HTTP '+uploaded.getResponseCode());
