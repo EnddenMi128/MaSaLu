@@ -66,8 +66,8 @@ function masaluSyncPersonalMenus_(page, assets, token, properties, requestedUid)
           if (!page.personal.startsWith('personal-grid-')) throw new Error('個人月曆新版底圖尚未同步');
           const source = JSON.parse(UrlFetchApp.fetch(assets+page.personal).getContentText());
           source.pixels = masaluUnpackMenuAsset_(Utilities.base64Decode(source.pixels));
-          source.width ??= 1250;
-          source.height ??= 422;
+          source.width = source.width ?? 1250;
+          source.height = source.height ?? 422;
           if (source.pixels.length !== source.width*source.height || source.palette.length !== 768 ||
               !Number.isInteger(source.width) || !Number.isInteger(source.height)) throw new Error('個人月曆底圖格式錯誤');
           source.areas = page.menu.areas.map(({bounds,action})=>({
