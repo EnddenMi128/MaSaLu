@@ -34,7 +34,7 @@ function masaluSyncPersonalMenus_(page, assets, token, properties, requestedUid)
         properties.setProperty(key, JSON.stringify(state));
       }
       const signature = entries.length ? Utilities.base64EncodeWebSafe(
-        Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, JSON.stringify(['grid', page.personal, entries]))
+        Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, JSON.stringify(['grid-checkmark', page.personal, entries]))
       ) : '';
       const userPath = 'user/'+uid+'/richmenu';
       if (signature && state.signature === signature && state.id && !state.pending) {
@@ -221,11 +221,13 @@ function masaluPersonalMenuImage_(template, entries) {
     }
   };
   const palette = [...template.palette];
+  const confirmedGreen = 251;
+  palette.splice(confirmedGreen*3,3,34,142,67);
   const personColors = new Map();
   const tileColor = color => {
     const hex = /^#[0-9a-f]{6}$/i.test(color || '') ? color.toUpperCase() : '#475569';
     if (personColors.has(hex)) return personColors.get(hex);
-    if (personColors.size === 16) return {fill:254,ink:252};
+    if (personColors.size === 15) return {fill:254,ink:252};
     const rgb = [1,3,5].map(offset=>parseInt(hex.slice(offset,offset+2),16));
     const fill = 236 + personColors.size;
     palette.splice(fill*3,3,...rgb);
@@ -239,9 +241,17 @@ function masaluPersonalMenuImage_(template, entries) {
   };
   for (const {groups,confirmed,bounds} of entries) {
     const {x,y} = bounds;
-    const statusX = x+bounds.width-75;
-    rectangle(statusX,y+5,73,32,252);
-    drawText(confirmed?'已確認':'待回覆',statusX+1,y+5,confirmed?254:255);
+    if (confirmed) {
+      const badgeX = x+bounds.width-37;
+      const badgeY = y+5;
+      rectangle(badgeX,badgeY,32,32,confirmedGreen);
+      for (let step=0; step<8; step++) rectangle(badgeX+6+step,badgeY+14+step,4,4,253);
+      for (let step=0; step<13; step++) rectangle(badgeX+13+step,badgeY+21-step,4,4,253);
+    } else {
+      const statusX = x+bounds.width-75;
+      rectangle(statusX,y+5,73,32,252);
+      drawText('待回覆',statusX+1,y+5,255);
+    }
     const shown = tall ? groups.slice(0,3) : groups.length > 3 ? groups.slice(0,2) : groups;
     const roomy = shown.length < 3 && groups.length === shown.length;
     const tile = tall ? 38 : roomy ? 32 : 24;
@@ -252,7 +262,9 @@ function masaluPersonalMenuImage_(template, entries) {
       const top = y+(tall?80:34)+index*(tile+(tall?8:2));
       rectangle(x+4,top,bounds.width-8,tile,252);
       const label = Array.from(location).slice(0,2);
-      label.forEach((char,i)=>drawGlyph(char,x+5+i*Math.floor(16*scale),top,253,scale));
+      const labelScale = tall ? 1.5 : scale;
+      const labelTop = top+Math.floor((tile-18*labelScale)/2);
+      label.forEach((char,i)=>drawGlyph(char,x+5+i*Math.floor(16*labelScale),labelTop,253,labelScale));
       const limit = people.length > capacity && !tall ? capacity-1 : capacity;
       const ordered = [...people].sort((a,b)=>Number(b.own)-Number(a.own));
       ordered.slice(0,limit).forEach((person,i)=>{
