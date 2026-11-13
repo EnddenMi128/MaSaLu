@@ -25,8 +25,8 @@ jobs:
           start=$(date -u -d "$today - $weekday days" +%F)
           echo "start=$start" >> "$GITHUB_OUTPUT"
           if jq -e --arg start "$start" '.start == $start and .menu.size.height == 1686' rich-menu/menu.json >/dev/null &&
-             test -f "rich-menu/calendar-$start-tall.jpg" &&
-             test -f "rich-menu/personal-grid-tall-$start.json"; then
+             test -f "rich-menu/calendar-$start-tall-v2.jpg" &&
+             test -f "rich-menu/personal-grid-tall-v2-$start.json"; then
             echo "current=true" >> "$GITHUB_OUTPUT"
           fi
       - name: Generate and save this week's menu
@@ -39,7 +39,7 @@ jobs:
           /usr/bin/python3 rich-menu/generate.py "$MENU_START"
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add rich-menu/menu.json "rich-menu/calendar-$MENU_START-tall.jpg" "rich-menu/personal-grid-tall-$MENU_START.json"
+          git add rich-menu/menu.json "rich-menu/calendar-$MENU_START-tall-v2.jpg" "rich-menu/personal-grid-tall-v2-$MENU_START.json"
           git commit -m "Update MaSaLu calendar menu for $MENU_START"
           git pull --rebase origin main
           git push origin HEAD:main
