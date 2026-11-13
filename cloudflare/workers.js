@@ -185,6 +185,9 @@ async function handleEvent(event, env, ctx) {
   }
   if (event.type === 'message' && event.message?.type === 'text') {
     const text = String(event.message.text || '').trim();
+    if (text === '啟用月曆自動更新') {
+      return handleFollowupEvent(event,{kind:'enable_weekly_calendar_menu',lineUid,eventId:eventId || event.message.id || ''},env);
+    }
     if (['個人班表','更新個人班表','更新個人月曆'].includes(text)) {
       return handleFollowupEvent(event,{kind:'personal_calendar_menu',lineUid,eventId:eventId || event.message.id || ''},env);
     }

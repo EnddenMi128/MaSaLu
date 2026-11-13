@@ -6,11 +6,42 @@ function masaluPublishCalendarRichMenu() {
 }
 
 function masaluEnableWeeklyCalendarRichMenu() {
-  const handler = 'masaluRefreshWeeklyCalendarRichMenu';
-  if (!ScriptApp.getProjectTriggers().some(trigger=>trigger.getHandlerFunction()===handler)) {
-    ScriptApp.newTrigger(handler).timeBased().everyMinutes(15).create();
-  }
+  masaluEnsureWeeklyMenuTrigger_();
   masaluPublishCalendarRichMenu();
+}
+
+function masaluEnsureWeeklyMenuTrigger_() {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    const handler = 'masaluRefreshWeeklyCalendarRichMenu';
+    if (!ScriptApp.getProjectTriggers().some(trigger=>trigger.getHandlerFunction()===handler)) {
+      ScriptApp.newTrigger(handler).timeBased().everyMinutes(15).create();
+    }
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function masaluEnableWeeklyMenuFromLine_(uid) {
+  const roster = employeeIndex_();
+  if (!validLineUid_(uid) || !['A01','A02','A03'].some(id=>roster[id]?.uid===uid)) {
+    return {ok:true,code:'unauthorized',message:'只有已綁定的 A01～A03 團長可以啟用每週更新。'};
+  }
+  try {
+    masaluEnsureWeeklyMenuTrigger_();
+  } catch (error) {
+    console.error('無法建立 LINE 月曆定時觸發器');
+    return {ok:true,code:'menu_trigger_failed',message:'每週更新尚未啟用。請由 Apps Script 專案擁有者執行 masaluEnableWeeklyCalendarRichMenu 並完成授權。'};
+  }
+  try {
+    const page = masaluUpdateCalendarRichMenu_(true);
+    const details = page.failures ? '，有 '+page.failures+' 個個人選單將自動重試' : '';
+    return {ok:true,code:'menu_enabled',message:'已啟用每週更新，並發布 '+page.start+' 至 '+page.end+' 的月曆'+details+'。'};
+  } catch (error) {
+    console.error('已啟用每週更新，本次 LINE 月曆發布失敗');
+    return {ok:true,code:'menu_enabled_pending',message:'已啟用每週更新。本次發布尚未完成，系統會自動重試。'};
+  }
 }
 
 function masaluRefreshWeeklyCalendarRichMenu() {
