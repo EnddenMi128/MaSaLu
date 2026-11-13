@@ -61,6 +61,53 @@ test('calendar API rejects invalid actions, origins and missing identity', async
   assert.equal(identity.status, 401);
 });
 
+test('replacement actions reply to the manager and fall back to a private push on LINE rejection', async () => {
+  const userId = 'U' + 'a'.repeat(32);
+  const oldFetch = globalThis.fetch;
+  const pushes = [];
+  let replyStatus = 200;
+  const confirmation = '已安排 王玲 替補，排班確認通知已送出。';
+  const skipped = '已略過，無需替補。';
+  globalThis.fetch = async (url, init) => {
+    const body = JSON.parse(init.body);
+    if (url === env.GAS_WEB_APP_URL) {
+      assert.equal(body.kind, 'leave_replacement');
+      assert.equal(body.lineUid, userId);
+      return Response.json({ok:true,message:body.decision==='skip'?skipped:confirmation});
+    }
+    if (url.endsWith('/reply')) {
+      assert.deepEqual(body.messages,[{type:'text',text:replyStatus===200?skipped:confirmation}]);
+      return new Response('{}',{status:replyStatus});
+    }
+    assert.equal(url,'https://api.line.me/v2/bot/message/push');
+    pushes.push({body,key:init.headers['x-line-retry-key']});
+    if (pushes.length === 2) {
+      return new Response('{}',{status:409,headers:{'x-line-accepted-request-id':'request-id'}});
+    }
+    return new Response('{}');
+  };
+  const click = (decision, extra = '') => {
+    const body = JSON.stringify({events:[{type:'postback',source:{type:'user',userId},replyToken:'reply',
+      webhookEventId:'event-'+decision,
+      postback:{data:'action=leave_replacement&serial=L-000001&decision='+decision+extra}}]});
+    const signature = createHmac('sha256',env.LINE_CHANNEL_SECRET).update(body).digest('base64');
+    return worker.fetch(new Request('https://worker.example/webhook',{
+      method:'POST',body,headers:{'x-line-signature':signature}
+    }),env);
+  };
+  try {
+    assert.equal((await click('skip')).status,200);
+    assert.equal(pushes.length,0);
+    replyStatus = 400;
+    assert.equal((await click('select','&staff=A05')).status,200);
+    assert.equal((await click('select','&staff=A05')).status,200);
+    assert.equal(pushes.length,2);
+    assert.deepEqual(pushes[0].body,{to:userId,messages:[{type:'text',text:confirmation}]});
+    assert.match(pushes[0].key,/^[0-9a-f-]{36}$/);
+    assert.deepEqual(pushes[1],pushes[0]);
+  } finally { globalThis.fetch = oldFetch; }
+});
+
 test('health endpoint and webhook signature guard remain intact', async () => {
   const health = await worker.fetch(new Request('https://worker.example/health'), env);
   assert.equal(health.status, 200);
