@@ -281,6 +281,7 @@ test('signed contact, swap and leave review events reach the correct GAS handler
   const source={type:'user',userId:'U'+'a'.repeat(32)};
   const events=[
     {type:'message',message:{type:'text',text:'集合時間？',id:'line-message'}},
+    {type:'message',message:{type:'text',text:'團員回覆 A01 '+'p'.repeat(43)+' 八點到',id:'member-reply'}},
     {type:'postback',postback:{data:'action=shift_followup&id='+id+'&v=1&choice=contact_end'}},
     {type:'postback',postback:{data:'action=shift_followup&id='+id+'&v=1&choice=swap_date',params:{date:'2026-11-11'}}},
     {type:'postback',postback:{data:'action=shift_followup&id='+id+'&v=1&choice=swap&page=1'}},
@@ -303,6 +304,8 @@ test('signed contact, swap and leave review events reach the correct GAS handler
     }),env);
     assert.equal(response.status,200);
     assert.equal(calls.find(call=>call.kind==='contact_message').eventId,'line-message');
+    assert.deepEqual(calls.find(call=>call.choice==='reply_contact'),{kind:'calendar_menu_action',lineUid:source.userId,
+      eventId:'member-reply',choice:'reply_contact',value:'A01',proof:'p'.repeat(43),text:'八點到',secret:env.GAS_SHARED_SECRET});
     assert.equal(calls.find(call=>call.choice==='contact_end').timestamp,123);
     assert.equal(calls.find(call=>call.choice==='swap_date').date,'2026-11-11');
     assert.equal(calls.find(call=>call.choice==='swap').page,1);

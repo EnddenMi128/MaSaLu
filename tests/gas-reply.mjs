@@ -7,6 +7,7 @@ import {createHash,createHmac} from 'node:crypto';
 const code = await readFile(new URL('../GAS/程式碼.js', import.meta.url), 'utf8');
 const calendarCode = await readFile(new URL('../GAS/CalendarApi.js', import.meta.url), 'utf8');
 const swapCode = await readFile(new URL('../GAS/ShiftSwap.js', import.meta.url), 'utf8');
+const menuActionsCode = await readFile(new URL('../GAS/CalendarMenuActions.js', import.meta.url), 'utf8');
 const uuid = '11111111-1111-1111-1111-111111111111';
 const uid = 'U'+'a'.repeat(32);
 const managerUid = 'U'+'b'.repeat(32);
@@ -477,6 +478,34 @@ test('the three approved-card actions deliver their prompts to the employee thro
   const fallback=run('contact','contact-event');
   assert.equal(fallback.code,'contact_open');
   assert.equal(fallback.quickReply.items[1].action.label,'結束對話');
+});
+
+test('member contact cards support private replies in both directions and reject a copied reply token',()=>{
+  const {ctx,pushes}=followupHarness();
+  vm.runInContext(menuActionsCode,ctx);
+  const roster=ctx.employeeIndex_();
+  const otherUid='U'+'c'.repeat(32);
+  roster.A05={name:'團員乙',uid:otherUid};
+  ctx.employeeIndex_=()=>roster;
+  ctx.openBook_=()=>({getSpreadsheetTimeZone:()=> 'Asia/Taipei'});
+  ctx.Utilities.formatDate=()=> '2026-11-05';
+  const run=input=>ctx.masaluCalendarMenuAction_(input);
+  const action=()=>pushes.at(-1).messages[0].contents.footer.contents[0].action;
+  assert.equal(run({lineUid:managerUid,choice:'send',value:'A04',text:'幾點到？',eventId:'first'}).code,'sent');
+  assert.equal(pushes[0].to,uid);
+  assert.equal(action().label,'回覆');
+  assert.equal(action().inputOption,'openKeyboard');
+  const [,target,proof]=action().fillInText.trim().split(' ');
+  assert.equal(target,'A01');
+  const reply={choice:'reply_contact',value:target,proof,text:'八點到',eventId:'second'};
+  assert.equal(run({...reply,lineUid:otherUid}).code,'unavailable');
+  assert.equal(run({...reply,lineUid:uid,text:''}).code,'invalid');
+  assert.equal(run({...reply,lineUid:uid}).message,'回覆已傳給 團長。');
+  assert.equal(pushes[1].to,managerUid);
+  assert.match(pushes[1].messages[0].contents.body.contents[1].text,/八點到/);
+  const [,returnTarget,returnProof]=action().fillInText.trim().split(' ');
+  assert.equal(run({...reply,lineUid:managerUid,value:returnTarget,proof:returnProof,text:'收到',eventId:'third'}).code,'sent');
+  assert.deepEqual(pushes.map(push=>push.to),[uid,managerUid,uid]);
 });
 
 test('leave supports type and optional note, validates owner and version, and deduplicates',()=>{
