@@ -50,7 +50,7 @@ function masaluRefreshWeeklyCalendarRichMenu() {
 
 function masaluUpdateCalendarRichMenu_(manual) {
   const settings = masaluCalendarMenuSettings_();
-  const {start, properties, token, assets, page} = settings;
+  const {properties, token, assets, page} = settings;
   if (!page) {
     if (manual) throw new Error('本週月曆圖片正在更新，稍後會自動重試。');
     return;
@@ -58,10 +58,10 @@ function masaluUpdateCalendarRichMenu_(manual) {
   const lock = LockService.getScriptLock();
   lock.waitLock(20000);
   try {
-    if (manual || properties.getProperty('MASALU_RICH_MENU_WEEK') !== start) {
+    if (manual || properties.getProperty('MASALU_RICH_MENU_ALIAS') !== page.alias) {
       const id = masaluPrepareCalendarRichMenu_(page,assets,token);
       masaluCalendarRichMenuRequest_('user/all/richmenu/'+id,token,'post');
-      properties.setProperty('MASALU_RICH_MENU_WEEK',start);
+      properties.setProperty('MASALU_RICH_MENU_ALIAS',page.alias);
     }
     page.failures = masaluSyncPersonalMenus_(page,assets,token,properties);
   } finally {

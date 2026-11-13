@@ -182,15 +182,12 @@ function masaluPersonalMenuImage_(template, entries) {
   const width = 1250, height = 422;
   const pixels = Uint8Array.from(template.pixels);
   const glyphs = Object.fromEntries(Object.entries(template.glyphs).map(([label,value])=>[label,Utilities.base64Decode(value)]));
-  const drawText = (label,x,y,color,scale) => {
+  const drawText = (label,x,y,color) => {
     const mask = glyphs[label];
-    for (let line=0; line<26; line++) {
-      for (let column=0; column<60; column++) {
-        if (!mask[line*60+column]) continue;
-        for (let dy=0; dy<scale; dy++) {
-          const start = (y+line*scale+dy)*width+x+column*scale;
-          pixels.fill(color,start,start+scale);
-        }
+    const maskWidth = mask.length === 72*32 ? 72 : 60;
+    for (let line=0; line<mask.length/maskWidth; line++) {
+      for (let column=0; column<maskWidth; column++) {
+        if (mask[line*maskWidth+column]) pixels[(y+line)*width+x+column] = color;
       }
     }
   };
@@ -227,22 +224,28 @@ function masaluPersonalMenuImage_(template, entries) {
   for (const {groups,confirmed,bounds} of entries) {
     const x = Math.floor(bounds.x/2);
     const y = Math.floor(bounds.y/2);
-    rectangle(x+104,y+4,61,26,252);
-    drawText(confirmed?'已確認':'待回覆',x+105,y+4,confirmed?254:255,1);
+    rectangle(x+93,y+2,73,32,252);
+    drawText(confirmed?'已確認':'待回覆',x+94,y+2,confirmed?254:255);
     const shown = groups.length > 3 ? groups.slice(0,2) : groups;
+    const roomy = shown.length < 3 && groups.length === shown.length;
+    const tile = roomy ? 32 : 24;
+    const scale = roomy ? 1.75 : 1.375;
+    const labelWidth = roomy ? 62 : 51;
+    const capacity = Math.floor((165-labelWidth)/(tile+2));
     shown.forEach(({location,people},index)=>{
-      const top = y+34+index*25;
-      rectangle(x+4,top,161,24,252);
+      const top = y+34+index*(tile+2);
+      rectangle(x+4,top,161,tile,252);
       const label = Array.from(location).slice(0,2);
-      label.forEach((char,i)=>drawGlyph(char,x+5+i*22,top,253,1.375));
-      const limit = people.length > 4 ? 3 : 4;
-      people.slice(0,limit).forEach((person,i)=>{
-        const left = x+51+i*26;
+      label.forEach((char,i)=>drawGlyph(char,x+5+i*Math.floor(16*scale),top,253,scale));
+      const limit = people.length > capacity ? capacity-1 : capacity;
+      const ordered = [...people].sort((a,b)=>Number(b.own)-Number(a.own));
+      ordered.slice(0,limit).forEach((person,i)=>{
+        const left = x+labelWidth+i*(tile+2);
         const {fill,ink} = tileColor(person.color);
-        rectangle(left,top,24,24,person.own?254:fill);
-        drawGlyph(person.mark,left+1,top,person.own?252:ink,1.375);
+        rectangle(left,top,tile,tile,person.own?254:fill);
+        drawGlyph(person.mark,left+Math.floor((tile-16*scale)/2),top,person.own?252:ink,scale);
       });
-      if (people.length>limit) drawGlyph('+',x+135,top,255,1.375);
+      if (people.length>limit) drawGlyph('+',x+labelWidth+limit*(tile+2),top,255,scale);
     });
     if (groups.length>shown.length) drawGlyph('+',x+6,y+85,255,1);
   }

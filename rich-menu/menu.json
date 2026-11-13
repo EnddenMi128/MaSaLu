@@ -1,7 +1,7 @@
 {
-  "alias": "masalu-large-2026-11-08",
-  "image": "calendar-2026-11-08-large.jpg",
-  "personal": "personal-grid-large-2026-11-08.json",
+  "alias": "masalu-readable-2026-11-08",
+  "image": "calendar-2026-11-08-readable.jpg",
+  "personal": "personal-grid-readable-2026-11-08.json",
   "start": "2026-11-08",
   "end": "2026-11-21",
   "menu": {
