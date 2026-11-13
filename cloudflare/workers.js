@@ -192,7 +192,12 @@ async function handleEvent(event, env, ctx) {
       return handleFollowupEvent(event,{kind:'personal_calendar_menu',lineUid,eventId:eventId || event.message.id || ''},env);
     }
     const menuChoice = {'聯絡團員':'contact','請假審核':'leave','回覆確認':'replies'}[text];
+    const contactReply = /^團員回覆\s+(\S{1,60})\s+([A-Za-z0-9_-]{43})(?:\s+([\s\S]*))?$/.exec(text);
     const contact = /^團員留言\s+(\S{1,60})\s+([\s\S]{1,1500})$/.exec(text);
+    if (contactReply) {
+      return handleFollowupEvent(event,{kind:'calendar_menu_action',lineUid,eventId:eventId || event.message.id || '',
+        choice:'reply_contact',value:contactReply[1],proof:contactReply[2],text:contactReply[3]},env);
+    }
     if (typeof menuChoice === 'string' || contact) {
       return handleFollowupEvent(event,{kind:'calendar_menu_action',lineUid,eventId:eventId || event.message.id || '',
         choice:contact?'send':menuChoice,value:contact?.[1],text:contact?.[2]},env);

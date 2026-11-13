@@ -21,6 +21,14 @@ function masaluCalendarMenuAction_(input) {
   const matches = Object.keys(roster).filter(id=>roster[id].uid===lineUid);
   if (!validLineUid_(lineUid) || matches.length!==1) return reply('unbound','請先綁定團員帳號。');
   const employeeId = matches[0];
+  if (choice==='reply_contact') {
+    const target = roster[value];
+    if (!validLineUid_(target?.uid) || target.uid===lineUid ||
+        !constantTimeEqual_(String(input.proof || ''),masaluContactReplyProof_(employeeId,lineUid,value,target.uid))) {
+      return reply('unavailable','這則對話已無法回覆，請重新聯絡團員。');
+    }
+    return masaluSendMemberContact_(roster,employeeId,value,text,eventId,true);
+  }
   const manager = ['A01','A02','A03'].includes(employeeId);
   const book = openBook_();
   const timeZone = book.getSpreadsheetTimeZone();
@@ -77,9 +85,36 @@ function masaluCalendarMenuAction_(input) {
       masaluCalendarActionButton_('輸入訊息','keyboard','',{inputOption:'openKeyboard',fillInText:prefix})
     ]);
   }
-  if (choice!=='send' || !text || text.length>1500 || !eventId) return reply('invalid','請輸入 1 至 1500 字的訊息。');
-  const sent = masaluPushWorkflowMessage_(roster[value].uid,
-    {type:'text',text:'💬 '+(roster[employeeId].name || employeeId)+'｜聯絡團員\n\n'+text},'menu-contact:'+eventId);
-  return sent ? reply('sent','訊息已傳給 '+(roster[value].name || value)+'。') :
-    reply('failed','訊息尚未送達，請稍後重試。');
+  if (choice!=='send') return reply('invalid','請從「聯絡團員」重新選擇收件人。');
+  return masaluSendMemberContact_(roster,employeeId,value,text,eventId,false);
+}
+
+function masaluContactReplyProof_(recipientId,recipientUid,senderId,senderUid) {
+  const secret = PropertiesService.getScriptProperties().getProperty('GAS_SHARED_SECRET');
+  return Utilities.base64EncodeWebSafe(Utilities.computeHmacSha256Signature(
+    JSON.stringify(['member-contact-reply',recipientId,recipientUid,senderId,senderUid]),secret
+  )).replace(/=+$/,'');
+}
+
+function masaluSendMemberContact_(roster,senderId,recipientId,text,eventId,isReply) {
+  const message = String(text || '').trim();
+  if (!message || message.length>1500 || !eventId) {
+    return {ok:true,code:'invalid',message:'請輸入 1 至 1500 字的訊息。'};
+  }
+  const sender = roster[senderId], recipient = roster[recipientId];
+  const title = '💬 '+(sender.name || senderId)+'｜'+(isReply?'回覆':'團員對話');
+  const proof = masaluContactReplyProof_(recipientId,recipient.uid,senderId,sender.uid);
+  const action = masaluCalendarActionButton_('回覆','keyboard','',{
+    inputOption:'openKeyboard',fillInText:'團員回覆 '+senderId+' '+proof+' '
+  }).action;
+  const card = {type:'flex',altText:title.slice(0,400),contents:{type:'bubble',
+    body:{type:'box',layout:'vertical',spacing:'md',contents:[
+      {type:'text',text:title,weight:'bold',wrap:true},
+      {type:'text',text:message,wrap:true}
+    ]},
+    footer:{type:'box',layout:'vertical',contents:[{type:'button',style:'secondary',height:'sm',action}]}
+  }};
+  const sent = masaluPushWorkflowMessage_(recipient.uid,card,'menu-contact:'+eventId);
+  return sent ? {ok:true,code:'sent',message:(isReply?'回覆':'訊息')+'已傳給 '+(recipient.name || recipientId)+'。'} :
+    {ok:true,code:'failed',message:'訊息尚未送達，請稍後重試。'};
 }
