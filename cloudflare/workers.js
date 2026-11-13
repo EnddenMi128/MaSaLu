@@ -191,6 +191,12 @@ async function handleEvent(event, env, ctx) {
     if (['個人班表','更新個人班表','更新個人月曆'].includes(text)) {
       return handleFollowupEvent(event,{kind:'personal_calendar_menu',lineUid,eventId:eventId || event.message.id || ''},env);
     }
+    const menuChoice = {'聯絡團員':'contact','請假審核':'leave','回覆確認':'replies'}[text];
+    const contact = /^團員留言\s+(\S{1,60})\s+([\s\S]{1,1500})$/.exec(text);
+    if (typeof menuChoice === 'string' || contact) {
+      return handleFollowupEvent(event,{kind:'calendar_menu_action',lineUid,eventId:eventId || event.message.id || '',
+        choice:contact?'send':menuChoice,value:contact?.[1],text:contact?.[2]},env);
+    }
     if (text === '缺班查詢') {
       return handleFollowupEvent(event,{kind:'vacancy',choice:'list',lineUid,eventId:eventId || event.message.id || ''},env);
     }
@@ -226,6 +232,15 @@ async function handleEvent(event, env, ctx) {
   }
   if (event.type === 'postback') {
     const data = event.postback?.data;
+    if (typeof data==='string' && data.startsWith('action=calendar_menu&') && data.length<=300) {
+      const params = new URLSearchParams(data);
+      const choice = params.get('choice'), value = params.get('value') || '';
+      if (choice==='keyboard') return;
+      if (['contact','leave','replies','leave_detail','contact_target'].includes(choice)) {
+        return handleFollowupEvent(event,{kind:'calendar_menu_action',lineUid,eventId,choice,value},env);
+      }
+      return;
+    }
     const vacancy = typeof data==='string' && /^action=vacancy&choice=(list|apply|review|approve|reject)&id=([a-f0-9:-]{1,60}|L-\d{6,})$/i.exec(data);
     if (vacancy) {
       return handleFollowupEvent(event,{kind:'vacancy',lineUid,eventId,choice:vacancy[1],id:vacancy[2]},env);

@@ -1,7 +1,7 @@
 {
-  "alias": "masalu-tall-v4-2026-11-08",
-  "image": "calendar-2026-11-08-tall-v4.jpg",
-  "personal": "personal-grid-tall-v4-2026-11-08.json",
+  "alias": "masalu-tall-v5-2026-11-08",
+  "image": "calendar-2026-11-08-tall-v5.jpg",
+  "personal": "personal-grid-tall-v5-2026-11-08.json",
   "start": "2026-11-08",
   "end": "2026-11-21",
   "menu": {
@@ -199,13 +199,65 @@
         "bounds": {
           "x": 25,
           "y": 1500,
-          "width": 1855,
+          "width": 482,
           "height": 160
         },
         "action": {
           "type": "uri",
           "label": "開啟完整月曆",
           "uri": "https://liff.line.me/2010020470-VBPZRUQ9/"
+        }
+      },
+      {
+        "bounds": {
+          "x": 517,
+          "y": 1500,
+          "width": 482,
+          "height": 160
+        },
+        "action": {
+          "type": "message",
+          "label": "聯絡團員",
+          "text": "聯絡團員"
+        }
+      },
+      {
+        "bounds": {
+          "x": 1009,
+          "y": 1500,
+          "width": 482,
+          "height": 160
+        },
+        "action": {
+          "type": "message",
+          "label": "請假審核",
+          "text": "請假審核"
+        }
+      },
+      {
+        "bounds": {
+          "x": 1501,
+          "y": 1500,
+          "width": 482,
+          "height": 160
+        },
+        "action": {
+          "type": "message",
+          "label": "回覆確認",
+          "text": "回覆確認"
+        }
+      },
+      {
+        "bounds": {
+          "x": 1993,
+          "y": 1500,
+          "width": 482,
+          "height": 160
+        },
+        "action": {
+          "type": "message",
+          "label": "缺班查詢",
+          "text": "缺班查詢"
         }
       },
       {
@@ -219,19 +271,6 @@
           "type": "message",
           "label": "個人班表",
           "text": "個人班表"
-        }
-      },
-      {
-        "bounds": {
-          "x": 1900,
-          "y": 1500,
-          "width": 575,
-          "height": 160
-        },
-        "action": {
-          "type": "message",
-          "label": "缺班查詢",
-          "text": "缺班查詢"
         }
       }
     ]

@@ -97,10 +97,21 @@ function masaluVacancyLocked_({lineUid,choice,id}) {
     const visible = manager ? slots : slots.filter(slot=>eligible(slot,employeeId));
     const pending = manager ? requests.filter(row=>row[4]==='待審核' && slots.some(slot=>slot.key===row[1] &&
       eligible(slot,String(row[2])))) : [];
+    const groups = new Map();
+    const ownRequests = new Map(requests.filter(row=>row[2]===employeeId).map(row=>[row[1],row[4]]));
+    for (const slot of visible) {
+      const key = slot.date+' '+slot.shift;
+      if (!groups.has(key)) groups.set(key,{slot,open:0,waiting:0});
+      const group = groups.get(key);
+      if (ownRequests.get(group.slot.key)==='不核准' && !ownRequests.has(slot.key)) group.slot = slot;
+      if (slot.replacement) group.waiting++;
+      else group.open++;
+    }
     const choices = [
       ...pending.map(row=>({text:masaluDate_(row[5],timeZone)+' '+row[6]+'｜'+(roster[row[2]]?.name || row[2]),
         button:masaluVacancyButton_('審核 '+row[6]+' '+(roster[row[2]]?.name || row[2]),'review',row[0])})),
-      ...visible.map(slot=>({text:slot.date+' '+slot.shift+(slot.replacement?'｜等替補確認':'｜待補班'),
+      ...[...groups].map(([key,{slot,open,waiting}])=>({text:key+'｜缺 '+open+' 人'+
+        (waiting?'｜'+waiting+' 人等替補確認':''),
         button:manager?null:masaluVacancyButton_('申請 '+label(slot),'apply',slot.key)}))
     ];
     const page = Math.min(Math.max(0,Number(id)||0),Math.max(0,Math.ceil(choices.length/10)-1));

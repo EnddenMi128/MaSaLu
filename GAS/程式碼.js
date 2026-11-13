@@ -353,6 +353,8 @@ function doPost(e) {
       result = masaluDeliverFollowup_(input,masaluLeaveReview_(input));
     } else if (input.kind === 'leave_replacement') {
       result = masaluLeaveReplacement_(input);
+    } else if (input.kind === 'calendar_menu_action') {
+      result = masaluDeliverFollowup_(input,masaluCalendarMenuAction_(input));
     } else if (input.kind === 'vacancy') {
       result = masaluDeliverFollowup_(input,masaluVacancy_(input));
     } else if (input.kind === 'personal_calendar_menu') {
