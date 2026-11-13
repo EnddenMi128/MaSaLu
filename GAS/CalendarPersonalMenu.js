@@ -150,9 +150,16 @@ function masaluPersonalRoster_(page, calendar, data, shifts, employeeId) {
   const staff = new Map(visible.staff.map(person=>[person.id,person]));
   const byDate = new Map();
   const ownRows = [];
+  const ownShiftsByDate = new Map();
   for (const row of visible.schedules) {
+    if (row.staffId !== employeeId) continue;
+    ownRows.push([row.date,row.replyStatus === '同意']);
+    if (!ownShiftsByDate.has(row.date)) ownShiftsByDate.set(row.date,new Set());
+    ownShiftsByDate.get(row.date).add(row.shiftId);
+  }
+  for (const row of visible.schedules) {
+    if (!ownShiftsByDate.get(row.date)?.has(row.shiftId)) continue;
     const location = shifts.get(row.shiftId);
-    if (row.staffId === employeeId) ownRows.push([row.date,row.replyStatus === '同意']);
     if (!byDate.has(row.date)) byDate.set(row.date,new Map());
     const locations = byDate.get(row.date);
     if (!locations.has(location)) locations.set(location,new Map());

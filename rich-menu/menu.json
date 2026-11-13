@@ -1,7 +1,7 @@
 {
-  "alias": "masalu-tall-v2-2026-11-08",
-  "image": "calendar-2026-11-08-tall-v2.jpg",
-  "personal": "personal-grid-tall-v2-2026-11-08.json",
+  "alias": "masalu-tall-v3-2026-11-08",
+  "image": "calendar-2026-11-08-tall-v3.jpg",
+  "personal": "personal-grid-tall-v3-2026-11-08.json",
   "start": "2026-11-08",
   "end": "2026-11-21",
   "menu": {
@@ -206,6 +206,19 @@
           "type": "uri",
           "label": "開啟完整月曆",
           "uri": "https://liff.line.me/2010020470-VBPZRUQ9/"
+        }
+      },
+      {
+        "bounds": {
+          "x": 2070,
+          "y": 42,
+          "width": 405,
+          "height": 126
+        },
+        "action": {
+          "type": "message",
+          "label": "個人班表",
+          "text": "個人班表"
         }
       }
     ]
