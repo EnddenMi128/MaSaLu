@@ -15,16 +15,19 @@ function masaluSyncPersonalMenus_(page, assets, token, properties, requestedUid)
   const saved = properties.getProperties();
   let template;
   let failures = 0;
+  let failureStage = '';
   const users = requestedUid ? [requestedUid] :
     new Set([...targets.keys(), ...Object.keys(saved).filter(key => key.startsWith(prefix)).map(key => key.slice(prefix.length))]);
   for (const uid of users) {
     if (!validLineUid_(uid)) continue;
     const key = prefix + uid;
     const employeeId = targets.get(uid);
+    let stage = '讀取個人班表';
     try {
       const entries = employeeId ? masaluPersonalRoster_(page,calendar,data,shifts,employeeId) : [];
       if (requestedUid) ownEntries = entries;
       const state = JSON.parse(saved[key] || '{}');
+      stage = '檢查既有選單';
       if (state.retired) {
         masaluCalendarRichMenuRequest_('richmenu/'+state.retired,token,'delete',null,404);
         delete state.retired;
@@ -59,14 +62,17 @@ function masaluSyncPersonalMenus_(page, assets, token, properties, requestedUid)
       }
       if (!state.pending) {
         if (!template) {
+          stage = '讀取與解壓底圖';
           if (!page.personal.startsWith('personal-grid-')) throw new Error('個人月曆新版底圖尚未同步');
           const source = JSON.parse(UrlFetchApp.fetch(assets+page.personal).getContentText());
-          source.pixels = Utilities.ungzip(Utilities.newBlob(Utilities.base64Decode(source.pixels))).getBytes();
+          source.pixels = masaluUnpackMenuAsset_(Utilities.base64Decode(source.pixels));
           if (source.pixels.length !== 1250*422 || source.palette.length !== 768) throw new Error('個人月曆底圖格式錯誤');
-          source.rosterGlyphs = Utilities.ungzip(UrlFetchApp.fetch(assets+'roster-glyphs.gz').getBlob()).getBytes();
+          stage = '讀取與解壓字型';
+          source.rosterGlyphs = masaluUnpackMenuAsset_(UrlFetchApp.fetch(assets+'roster-glyphs.gz').getContent());
           if (source.rosterGlyphs.length !== (95+0xa000-0x3400)*36) throw new Error('班表字型格式錯誤');
           template = source;
         }
+        stage = '繪製個人班表';
         const image = masaluPersonalMenuImage_(template,entries);
         const menu = JSON.parse(JSON.stringify(page.menu));
         menu.name = 'MaSaLu 個人排班 '+page.start;
@@ -76,39 +82,59 @@ function masaluSyncPersonalMenus_(page, assets, token, properties, requestedUid)
           width:Math.floor((bounds.x+bounds.width)/2)-Math.floor(bounds.x/2),
           height:Math.floor((bounds.y+bounds.height)/2)-Math.floor(bounds.y/2)
         }}));
+        stage = '建立 LINE 選單';
         const created = masaluCalendarRichMenuRequest_('richmenu',token,'post',menu);
         const id = JSON.parse(created.getContentText()).richMenuId;
         try {
+          stage = '上傳個人班表圖片';
           masaluUploadCalendarRichMenu_(id,token,'image/png',image);
         } catch (error) {
-          masaluCalendarRichMenuRequest_('richmenu/'+id,token,'delete',null,404);
+          try {
+            masaluCalendarRichMenuRequest_('richmenu/'+id,token,'delete',null,404);
+          } catch (_) {
+            console.error('未完成的個人選單清理失敗');
+          }
           throw error;
         }
         state.pending = {id,signature};
         properties.setProperty(key,JSON.stringify(state));
       }
       // Retry an interrupted link only while its schedule and owner are current.
+      stage = '套用到 LINE 帳號';
       masaluCalendarRichMenuRequest_(userPath+'/'+state.pending.id,token,'post');
-      if (requestedUid && !masaluCalendarMenuLinked_(userPath,state.pending.id,token)) return {status:'failed',entries:ownEntries};
+      if (requestedUid && !masaluCalendarMenuLinked_(userPath,state.pending.id,token)) {
+        return {status:'failed',entries:ownEntries,failureStage:'LINE 尚未回報選單已套用'};
+      }
       const next = {...state.pending,retired:state.id || ''};
       properties.setProperty(key,JSON.stringify(next));
       if (next.retired) {
-        masaluCalendarRichMenuRequest_('richmenu/'+next.retired,token,'delete',null,404);
-        delete next.retired;
-        properties.setProperty(key,JSON.stringify(next));
+        try {
+          masaluCalendarRichMenuRequest_('richmenu/'+next.retired,token,'delete',null,404);
+          delete next.retired;
+          properties.setProperty(key,JSON.stringify(next));
+        } catch (_) {
+          console.error('舊個人選單待清理');
+        }
       }
+      if (requestedUid) return {status:'linked',entries:ownEntries};
     } catch (error) {
       failures++;
       // LINE endpoint errors may contain a UID. Keep only the status in logs.
-      console.error('個人月曆選單更新失敗 '+(String(error.message).match(/HTTP \d+/)?.[0] || ''));
+      const status = String(error.message).match(/HTTP \d+/)?.[0];
+      failureStage = status ? stage+'（'+status+'）' : stage;
+      console.error('個人月曆選單更新失敗：'+failureStage);
     }
   }
   if (requestedUid) {
-    if (failures) return {status:'failed',entries:ownEntries};
+    if (failures) return {status:'failed',entries:ownEntries,failureStage};
     if (!targets.has(requestedUid)) return {status:'unbound',entries:[]};
     return {status:ownEntries.length ? 'linked' : 'empty',entries:ownEntries};
   }
   return failures;
+}
+
+function masaluUnpackMenuAsset_(bytes) {
+  return Utilities.ungzip(Utilities.newBlob(bytes,'application/x-gzip','menu.gz')).getBytes();
 }
 
 function masaluPersonalRoster_(page, calendar, data, shifts, employeeId) {

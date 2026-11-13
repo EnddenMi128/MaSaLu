@@ -62,11 +62,11 @@ function masaluRefreshOwnCalendarMenu_(uid) {
   const lock = LockService.getScriptLock();
   lock.waitLock(20000);
   try {
-    const {status, entries} = masaluSyncPersonalMenus_(page,assets,token,properties,uid);
+    const {status, entries, failureStage} = masaluSyncPersonalMenus_(page,assets,token,properties,uid);
     const messages = {
       unbound:'請先綁定團員帳號，再更新個人班表。',
       empty:'本週與下週沒有你的班次。',
-      failed:'圖文選單暫時無法套用。稍後可再輸入「個人班表」。',
+      failed:'圖文選單暫時無法套用（'+failureStage+'）。',
       linked:'已套用個人班表（'+page.start+' 至 '+page.end+'），請返回 LINE 聊天列表再開啟聊天室查看。'
     };
     const list = entries.map(({date,groups,confirmed})=>[
