@@ -211,7 +211,7 @@ input{width:100%;min-width:0;border:1px solid #e2e5ea;border-radius:11px;padding
       <div class="settings-section">
         <div class="settings-title">人員設定</div>
         <div class="settings-note">所有畫面依 GAS 的 sort_order 排序，新人會自動排最後。</div>
-        <div class="person-form">
+        <div class="person-form" id="addStaffForm">
           <input id="newStaffName" placeholder="姓名">
           <input id="newStaffShort" maxlength="1" placeholder="代表字">
           <input id="newStaffColor" type="color" value="#7C3AED">
@@ -270,6 +270,7 @@ let viewYear = now.getFullYear();
 let viewMonth = now.getMonth();
 let selected = keyOf(now);
 let linkedDate = '';
+let openedLinkedStaffForm = false;
 let touchState = null;
 
 const $ = s => document.querySelector(s);
@@ -419,7 +420,15 @@ async function loadBootstrap(){
     const {data:res,error}=await fresh;
     if(error) throw error;
     applyBootstrap(res,false);
-    if(linkedDate && selected===linkedDate && new URLSearchParams(location.search).get('from')==='richmenu'){
+    const params=new URLSearchParams(location.search);
+    if(params.get('open')==='add-staff' && !openedLinkedStaffForm){
+      openedLinkedStaffForm=true;
+      if(state.viewer?.manager){
+        openEditor();
+        $('[data-mode="settings"]').click();
+        requestAnimationFrame(()=>$('#addStaffForm').scrollIntoView({block:'center'}));
+      }else toast('只有 A01–A03 管理員可以新增人員');
+    }else if(linkedDate && selected===linkedDate && params.get('from')==='richmenu'){
       document.querySelector('.detail-card').scrollIntoView({block:'start'});
     }
     const cacheData=res.viewer?.manager?res:{...res,

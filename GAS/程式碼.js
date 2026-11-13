@@ -988,6 +988,11 @@ function masaluLeaveReplacementButton_(serial,label,decision,extra='') {
     data:'action=leave_replacement&serial='+serial+'&decision='+decision+extra}};
 }
 
+function masaluLeaveAddStaffButton_(date) {
+  return {type:'action',action:{type:'uri',label:'新增',
+    uri:'https://liff.line.me/2010020470-VBPZRUQ9?open=add-staff&date='+encodeURIComponent(date)}};
+}
+
 function masaluLeaveReplacementLocked_(input, request, roster, receipt) {
   const {serial,decision} = input;
   const reply = (code,message)=>receipt ? {...receipt,message:receipt.message+'\n'+message} : {ok:true,code,message};
@@ -1045,11 +1050,8 @@ function masaluLeaveReplacementLocked_(input, request, roster, receipt) {
   const candidates = masaluReplacementCandidates_(active,roster)
     .filter(id=>id!==applicantId && roster[id].uid!==applicantUid);
   if (decision==='add') {
-    const prefix = '新增替補 '+serial+' ';
-    return {...reply('leave_replacement_add','請輸入「'+prefix+'姓名 LINE UID」。對方可傳「我的UID」給 MaSaLu 查詢。'),
-      quickReply:{items:[{type:'action',action:{type:'postback',label:'輸入人員',
-        data:'action=leave_replacement_keyboard',inputOption:'openKeyboard',fillInText:prefix}},
-      masaluLeaveReplacementButton_(serial,'返回','list')]}};
+    return {...reply('leave_replacement_add','請開啟 LIFF 設定新增人員。'),
+      quickReply:{items:[masaluLeaveAddStaffButton_(date)]}};
   }
   const staffId = String(input.staffId||'');
   const tempName = String(input.name||'').trim();
@@ -1072,7 +1074,7 @@ function masaluLeaveReplacementLocked_(input, request, roster, receipt) {
   for (const id of candidates.slice(page*9,page*9+9)) {
     items.push(masaluLeaveReplacementButton_(serial,roster[id].name||id,'select','&staff='+encodeURIComponent(id)));
   }
-  items.push(masaluLeaveReplacementButton_(serial,'新增','add'));
+  items.push(masaluLeaveAddStaffButton_(date));
   if (page>0) items.push(masaluLeaveReplacementButton_(serial,'上一頁','list','&page='+(page-1)));
   if ((page+1)*9<candidates.length) items.push(masaluLeaveReplacementButton_(serial,'下一頁','list','&page='+(page+1)));
   const message = decision==='select' ? '該人員已無法替補，請重新選擇。' :
