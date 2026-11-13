@@ -1,21 +1,50 @@
 /** Run from the bound spreadsheet to publish the calendar menu for the next two weeks. */
 function masaluPublishCalendarRichMenu() {
+  const page = masaluUpdateCalendarRichMenu_(true);
+  SpreadsheetApp.getUi().alert(page.start+' 至 '+page.end+' 排班月曆圖文選單已發布。');
+}
+
+function masaluEnableWeeklyCalendarRichMenu() {
+  const handler = 'masaluRefreshWeeklyCalendarRichMenu';
+  if (!ScriptApp.getProjectTriggers().some(trigger=>trigger.getHandlerFunction()===handler)) {
+    ScriptApp.newTrigger(handler).timeBased().everyMinutes(15).create();
+  }
+  masaluPublishCalendarRichMenu();
+}
+
+function masaluRefreshWeeklyCalendarRichMenu() {
+  masaluUpdateCalendarRichMenu_(false);
+}
+
+function masaluUpdateCalendarRichMenu_(manual) {
+  const today = Utilities.formatDate(new Date(),'Asia/Taipei','yyyy-MM-dd');
+  const sunday = new Date(today+'T00:00:00Z');
+  sunday.setUTCDate(sunday.getUTCDate()-sunday.getUTCDay());
+  const start = sunday.toISOString().slice(0,10);
+  const properties = PropertiesService.getScriptProperties();
+  if (!manual && properties.getProperty('MASALU_RICH_MENU_WEEK') === start) return;
   const token = PropertiesService.getScriptProperties().getProperty('LINE_CHANNEL_ACCESS_TOKEN');
   if (!token) throw new Error('缺少 LINE_CHANNEL_ACCESS_TOKEN');
-  const assets = 'https://enddenmi128.github.io/MaSaLu/rich-menu/';
+  const assets = 'https://raw.githubusercontent.com/EnddenMi128/MaSaLu/main/rich-menu/';
   const manifest = UrlFetchApp.fetch(assets+'menu.json',{muteHttpExceptions:true});
   if (manifest.getResponseCode() !== 200) throw new Error('兩週月曆圖文選單尚未發布');
   const page = JSON.parse(manifest.getContentText());
   if (!page?.menu || !page.alias || !page.image) throw new Error('月曆選單資料不完整');
+  if (page.start !== start) {
+    if (manual) throw new Error('本週月曆圖片正在更新，稍後會自動重試。');
+    return;
+  }
   const lock = LockService.getScriptLock();
   lock.waitLock(20000);
   try {
+    if (!manual && properties.getProperty('MASALU_RICH_MENU_WEEK') === start) return;
     const id = masaluPrepareCalendarRichMenu_(page,assets,token);
     masaluCalendarRichMenuRequest_('user/all/richmenu/'+id,token,'post');
+    properties.setProperty('MASALU_RICH_MENU_WEEK',start);
   } finally {
     lock.releaseLock();
   }
-  SpreadsheetApp.getUi().alert(page.start+' 至 '+page.end+' 排班月曆圖文選單已發布。');
+  return page;
 }
 
 function masaluPrepareCalendarRichMenu_(page,assets,token) {

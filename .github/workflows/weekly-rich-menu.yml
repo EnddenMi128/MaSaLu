@@ -1,0 +1,44 @@
+name: Update MaSaLu calendar menu
+
+on:
+  schedule:
+    # 00:08 in Taiwan. Other days also retry if Sunday's run was delayed.
+    - cron: '8 16 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: masalu-calendar-menu-assets
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check if this week's menu exists
+        id: week
+        run: |
+          today=$(TZ=Asia/Taipei date +%F)
+          weekday=$(TZ=Asia/Taipei date +%w)
+          start=$(date -u -d "$today - $weekday days" +%F)
+          echo "start=$start" >> "$GITHUB_OUTPUT"
+          if jq -e --arg start "$start" '.start == $start' rich-menu/menu.json >/dev/null &&
+             test -f "rich-menu/calendar-$start-masalu.jpg"; then
+            echo "current=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Generate and save this week's menu
+        if: steps.week.outputs.current != 'true'
+        env:
+          MENU_START: ${{ steps.week.outputs.start }}
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends fonts-noto-cjk fonts-dejavu-core python3-pil
+          /usr/bin/python3 rich-menu/generate.py "$MENU_START"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add rich-menu/menu.json "rich-menu/calendar-$MENU_START-masalu.jpg"
+          git commit -m "Update MaSaLu calendar menu for $MENU_START"
+          git pull --rebase origin main
+          git push origin HEAD:main

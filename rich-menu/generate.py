@@ -12,7 +12,8 @@ LIFF = "https://liff.line.me/2010020470-VBPZRUQ9/"
 BG, INK, ACCENT = "#16100D", "#FFF3E5", "#FF873D"
 
 
-def generate(start, font_path, font_index):
+def generate(today, font_path, font_index):
+    start = today - timedelta(days=(today.weekday() + 1) % 7)
     dates = [start + timedelta(days=offset) for offset in range(14)]
     end = dates[-1]
     output = Path(__file__).parent
@@ -45,8 +46,8 @@ def generate(start, font_path, font_index):
         row, column = divmod(offset, 7)
         x, y = 25 + column * 352, 264 + row * 233
         box = (x, y, x + 338, y + 221)
-        color = ACCENT if offset == 0 else INK
-        draw.rounded_rectangle(box, radius=8, outline=color, width=4 if offset == 0 else 2)
+        color = ACCENT if day == start else INK
+        draw.rounded_rectangle(box, radius=8, outline=color, width=4 if day == start else 2)
         draw.text((x + 26, y + 46), f"{day.month}/{day.day}", font=fonts[66], fill=color, anchor="lm",
                   stroke_width=2, stroke_fill=BG)
         area(box, f"{day.month} 月 {day.day} 日", f"{LIFF}?date={day.isoformat()}&from=richmenu")
@@ -67,8 +68,8 @@ def generate(start, font_path, font_index):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("start", type=date.fromisoformat, help="YYYY-MM-DD")
+    parser.add_argument("today", type=date.fromisoformat, help="Any date in the first week (YYYY-MM-DD)")
     parser.add_argument("--font", default="/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc")
     parser.add_argument("--font-index", default=3, type=int)
     args = parser.parse_args()
-    generate(args.start, args.font, args.font_index)
+    generate(args.today, args.font, args.font_index)

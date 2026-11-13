@@ -42,6 +42,7 @@ ui.createMenu('📨 團長排班通知')
     .addItem('安裝每日臨時資料清理', 'installDailyCleanupTrigger')
     .addSeparator()
     .addItem('發布兩週 LINE 月曆選單', 'masaluPublishCalendarRichMenu')
+    .addItem('啟用 LINE 月曆每週更新', 'masaluEnableWeeklyCalendarRichMenu')
     .addToUi();
 }
 
