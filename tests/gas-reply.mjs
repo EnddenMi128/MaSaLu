@@ -7,6 +7,8 @@ import {createHash,createHmac} from 'node:crypto';
 const code = await readFile(new URL('../GAS/程式碼.js', import.meta.url), 'utf8');
 const calendarCode = await readFile(new URL('../GAS/CalendarApi.js', import.meta.url), 'utf8');
 const swapCode = await readFile(new URL('../GAS/ShiftSwap.js', import.meta.url), 'utf8');
+const calendarMenuActionsCode = await readFile(new URL('../GAS/CalendarMenuActions.js', import.meta.url), 'utf8');
+const calendarRichMenuCode = await readFile(new URL('../GAS/CalendarRichMenu.js', import.meta.url), 'utf8');
 const uuid = '11111111-1111-1111-1111-111111111111';
 const uid = 'U'+'a'.repeat(32);
 const managerUid = 'U'+'b'.repeat(32);
@@ -503,6 +505,39 @@ test('leave supports type and optional note, validates owner and version, and de
   assert.equal(h.requests.length,1);
   assert.equal(h.pushes.length,1);
   assert.equal(h.row[7],'同意');
+});
+
+test('personal roster leave lists only eligible dates and routes the selected shift to leave types',()=>{
+  const h=followupHarness();
+  const ctx=h.ctx;
+  vm.runInContext(calendarMenuActionsCode,ctx);
+  vm.runInContext(calendarRichMenuCode,ctx);
+  ctx.masaluCalendarMenuSettings_=()=>({page:{start:'2026-11-01',end:'2026-11-14'}});
+  ctx.masaluSyncPersonalMenus_=()=>({status:'linked',entries:[{date:'2026-11-05',groups:[],confirmed:true}]});
+  const button=ctx.masaluRefreshOwnCalendarMenu_(uid).quickReply.items[0].action;
+  assert.equal(button.label,'我要請假');
+  assert.equal(button.data,'action=calendar_menu&choice=request_leave&value=2026-11-14');
+
+  const row=(date,staff='A04',status='同意',shift='田園')=>{
+    const copy=[...h.row];
+    copy[1]='22222222-2222-2222-2222-222222222222';
+    copy[2]=staff; copy[3]=date; copy[6]=shift; copy[7]=status;
+    return copy;
+  };
+  const rows=[h.row,row('2026-11-04'),row('2026-11-06','A01'),
+    row('2026-11-07','A04','待回覆'),row('2026-11-08','A04','同意','公休'),row('2026-11-15')];
+  const run=(choice,value)=>ctx.masaluPersonalLeaveOptions_(choice,value,'A04',rows,'2026-11-05','Asia/Taipei',{});
+  ctx.masaluTable_=()=>({rows:[['off','公休',true]]});
+  const dates=run('request_leave','2026-11-14');
+  assert.deepEqual(Array.from(dates.quickReply.items,item=>item.action.label),['2026-11-05']);
+  assert.equal(run('request_leave_date','2026-11-06').code,'no_leave_shifts');
+  assert.equal(run('request_leave_date','2026-11-08').code,'no_leave_shifts');
+  const types=run('request_leave_date','2026-11-05');
+  assert.match(types.message,/2026-11-05｜玉門｜請選擇假別/);
+  assert.equal(types.quickReply.items[1].action.data,'action=shift_followup&id='+uuid+'&v=1&choice=leave_sick');
+  rows.push(row('2026-11-05'));
+  const shifts=run('request_leave_date','2026-11-05');
+  assert.deepEqual(Array.from(shifts.quickReply.items,item=>item.action.label),['玉門 ・ 時段待確認','田園 ・ 時段待確認']);
 });
 
 test('managers can review a legacy leave request once and retry an undelivered result',()=>{

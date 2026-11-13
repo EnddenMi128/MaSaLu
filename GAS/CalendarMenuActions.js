@@ -3,13 +3,13 @@ function masaluCalendarActionButton_(label, action, value, options) {
     data:'action=calendar_menu&choice='+action+'&value='+encodeURIComponent(value),...options}};
 }
 
-function masaluCalendarActionPage_(entries, value, action, title, empty) {
+function masaluCalendarActionPage_(entries, value, action, title, empty, pagePrefix='') {
   const limit = 10;
   const page = Math.min(Math.max(0,Number(value)||0),Math.max(0,Math.ceil(entries.length/limit)-1));
   const selected = entries.slice(page*limit,(page+1)*limit);
   const items = selected.map(entry=>entry.button).filter(Boolean);
-  if (page>0) items.push(masaluCalendarActionButton_('上一頁',action,page-1));
-  if ((page+1)*limit<entries.length) items.push(masaluCalendarActionButton_('下一頁',action,page+1));
+  if (page>0) items.push(masaluCalendarActionButton_('上一頁',action,pagePrefix+(page-1)));
+  if ((page+1)*limit<entries.length) items.push(masaluCalendarActionButton_('下一頁',action,pagePrefix+(page+1)));
   return {ok:true,code:action,message:selected.length?title+'\n'+selected.map(entry=>entry.text).join('\n'):empty,
     ...(items.length?{quickReply:{items}}:{})};
 }
@@ -46,6 +46,9 @@ function masaluCalendarMenuAction_(input) {
   const today = Utilities.formatDate(new Date(),timeZone,'yyyy-MM-dd');
   const sheet = shiftSheet_();
   const rows = sheet.getLastRow()<2 ? [] : sheet.getRange(2,1,sheet.getLastRow()-1,SHIFT_APP.SHIFT_HEADERS.length).getValues();
+  if (choice==='request_leave' || choice==='request_leave_date') {
+    return masaluPersonalLeaveOptions_(choice,value,employeeId,rows,today,timeZone,book);
+  }
   const upcoming = rows.map(row=>({date:masaluDate_(row[3],timeZone),shift:String(row[6] || '').trim(),
     staffId:String(row[2] || '').trim(),status:String(row[7] || '').trim(),name:String(row[12] || '')}))
     .filter(row=>row.date>=today && row.shift && row.shift!=='休假' && (row.staffId || row.name))
@@ -82,4 +85,42 @@ function masaluCalendarMenuAction_(input) {
     {type:'text',text:'💬 '+(roster[employeeId].name || employeeId)+'｜聯絡團員\n\n'+text},'menu-contact:'+eventId);
   return sent ? reply('sent','訊息已傳給 '+(roster[value].name || value)+'。') :
     reply('failed','訊息尚未送達，請稍後重試。');
+}
+
+function masaluPersonalLeaveOptions_(choice,value,employeeId,rows,today,timeZone,book) {
+  const selectedDate = choice==='request_leave_date';
+  const [dateValue,page] = String(value || '').split('~');
+  const date = masaluDate_(dateValue,timeZone);
+  const offNames = new Set(['休假']);
+  for (const row of masaluTable_(MASALU.SHIFTS,MASALU.SHIFT_HEADERS,book).rows) {
+    if (String(row[2]).toLowerCase()==='true') offNames.add(String(row[1]).trim());
+  }
+  const byDate = new Map();
+  for (const row of rows) {
+    if (String(row[2] || '').trim()!==employeeId || row[7]!=='同意') continue;
+    const day = masaluDate_(row[3],timeZone);
+    const id = String(row[1] || '');
+    const version = Number(row[11]);
+    const location = String(row[6] || '').trim();
+    if (!day || day<today || (selectedDate ? day!==date : day>date) || !location || offNames.has(location) ||
+        !/^[a-f0-9-]{36}$/i.test(id) || !Number.isSafeInteger(version) || version<1) continue;
+    if (!byDate.has(day)) byDate.set(day,[]);
+    byDate.get(day).push({id,version,shift:location,row});
+  }
+  if (!byDate.size) return {ok:true,code:'no_leave_shifts',
+    message:selectedDate?'這天沒有可申請請假的班次，請更新個人班表後再選。':'這份個人班表目前沒有可申請請假的班次，請先確認排班。'};
+  if (!selectedDate) {
+    const entries = [...byDate.keys()].sort().map(day=>({text:day,
+      button:masaluCalendarActionButton_(day,'request_leave_date',day,{displayText:day})}));
+    return masaluCalendarActionPage_(entries,page,choice,'請選擇請假日期','',date+'~');
+  }
+  const shifts = byDate.get(date);
+  if (shifts.length===1) {
+    return masaluLeaveTypeOptions_({...shifts[0],date});
+  }
+  const entries = shifts.map(shift=>{
+    const text = masaluSwapShiftText_(shift.row);
+    return {text,button:{type:'action',action:masaluFollowupAction_(shift,'leave',text.slice(0,20))}};
+  });
+  return masaluCalendarActionPage_(entries,page,choice,date+'｜請選擇要請假的班別','',date+'~');
 }

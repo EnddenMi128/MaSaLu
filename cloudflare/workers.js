@@ -236,7 +236,7 @@ async function handleEvent(event, env, ctx) {
       const params = new URLSearchParams(data);
       const choice = params.get('choice'), value = params.get('value') || '';
       if (choice==='keyboard') return;
-      if (['contact','leave','replies','leave_detail','contact_target'].includes(choice)) {
+      if (['contact','leave','replies','leave_detail','contact_target','request_leave','request_leave_date'].includes(choice)) {
         return handleFollowupEvent(event,{kind:'calendar_menu_action',lineUid,eventId,choice,value},env);
       }
       return;
