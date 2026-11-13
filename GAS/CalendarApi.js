@@ -74,7 +74,7 @@ function masaluBootstrap_(data) {
   const schedules=[];
   data.schedule.rows.forEach((r,i)=>{
     const date=masaluDate_(r[3],data.timeZone),shift=shifts.find(s=>s.name===String(r[6]||'').trim());
-    if(!date||!shift || String(r[7]||'').trim()==='不同意')return;
+    if(!date||!shift || ['不同意','已請假'].includes(String(r[7]||'').trim()))return;
     let staffId=String(r[2]||'').trim();
     if(!staffId && r[12]) {
       staffId='temporary:'+String(r[1]||i);
@@ -164,8 +164,8 @@ function masaluSaveDay_(data,payload,clear) {
     if(masaluDate_(r[3],data.timeZone)!==date) return;
     const staffId=String(r[2]||'').trim() || (r[12]?'temporary:'+String(r[1]||i):'');
     const pair=JSON.stringify([staffId,String(r[6]||'').trim()]);
-    if(!clear && String(r[7]||'').trim()==='不同意') {
-      if(wanted.has(pair)) throw new Error('此員工已拒絕當日排班，請另外安排替補人員');
+    if(!clear && ['不同意','已請假'].includes(String(r[7]||'').trim())) {
+      if(wanted.has(pair)) throw new Error('此員工已拒絕排班或已請假，請另外安排替補人員');
       return; // Keep the declined row and its history; it no longer appears on the calendar.
     }
     if(wanted.has(pair)) {existing.add(pair);return;}

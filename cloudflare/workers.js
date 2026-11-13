@@ -196,6 +196,12 @@ async function handleEvent(event, env, ctx) {
       return handleFollowupEvent(event,{kind:'leave_review',lineUid,eventId:eventId || event.message.id || '',
         serial:leaveReview[1].toUpperCase()},env);
     }
+    if (/^新增替補(?:\s|$)/.test(text)) {
+      const entry = /^新增替補\s+(L-\d{6,})\s+([^\r\n]{1,40}?)\s+(U[0-9a-f]{32})$/i.exec(text);
+      if (!entry) return replyLineSafe(event.replyToken,'請輸入「新增替補 L-000001 姓名 LINE UID」。',env);
+      return handleFollowupEvent(event,{kind:'leave_replacement',lineUid,eventId:eventId || event.message.id || '',
+        serial:entry[1].toUpperCase(),decision:'submit',name:entry[2],targetUid:entry[3]},env);
+    }
     if (text === '我的UID') {
       await replyLine(event.replyToken, '您的 LINE UID：\n' + lineUid + '\n\n若要接收臨時排班，請私下提供給團長。請勿公開張貼。', env);
       return;
@@ -220,6 +226,14 @@ async function handleEvent(event, env, ctx) {
     const leaveReview = typeof data==='string' && /^action=leave_review&serial=(L-\d{6,})&decision=(approve|reject)$/.exec(data);
     if (leaveReview) {
       return handleFollowupEvent(event,{kind:'leave_review',lineUid,eventId,serial:leaveReview[1],decision:leaveReview[2]},env);
+    }
+    if (typeof data==='string' && data.startsWith('action=leave_replacement&') && data.length<=300) {
+      const params = new URLSearchParams(data);
+      const serial = params.get('serial'), decision = params.get('decision'), staffId = params.get('staff');
+      const page = Number(params.get('page'));
+      if (!/^L-\d{6,}$/.test(serial || '') || !['list','skip','select','add','retry'].includes(decision) ||
+          !Number.isSafeInteger(page) || page<0 || (decision==='select' && !staffId)) return;
+      return handleFollowupEvent(event,{kind:'leave_replacement',lineUid,eventId,serial,decision,staffId,page},env);
     }
     const parsed = parsePostbackData(data);
     const followup = parsed ? null : parseShiftFollowupData(data,event.postback?.params?.date);

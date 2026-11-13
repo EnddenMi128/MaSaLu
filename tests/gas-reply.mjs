@@ -525,6 +525,32 @@ test('managers can review a legacy leave request once and retry an undelivered r
   assert.equal(h.pushes.length,deliveries);
 });
 
+test('leave approval immediately offers available names, skip and add, and rechecks before assigning',()=>{
+  const h=followupHarness();
+  const replacement=replacementHarness();
+  h.ctx.shiftSheet_=replacement.ctx.shiftSheet_;
+  h.ctx.findShiftRow_=replacement.ctx.findShiftRow_;
+  h.ctx.employeeIndex_=replacement.ctx.employeeIndex_;
+  h.ctx.sendShiftRow_=replacement.ctx.sendShiftRow_;
+  replacement.roster.E0.name='勇翰';
+  replacement.roster.E1.name='王玲';
+  replacement.row[7]='同意';
+  replacement.records.push([false,'other','E2','2026-11-05','','','田園','同意']);
+  h.ledger.appendRow([uuid+':1:leave','L-000001']);
+  h.requests.push([uuid+':1:leave',new Date(),uuid,1,'A04','員工甲','2026-11-05','玉門','請假申請','事假','','待處理']);
+  const input={lineUid:managerUid,serial:'L-000001'};
+  const act=(decision,extra)=>h.ctx.masaluLeaveReplacement_({...input,decision,...extra});
+  const approved=h.ctx.masaluLeaveReview_({...input,decision:'approve'});
+  assert.deepEqual(Array.from(approved.quickReply.items,item=>item.action.label),['略過','團長','勇翰','王玲','新增']);
+  assert.equal(act('select',{staffId:'E2'}).code,'leave_replacement_choices');
+  assert.equal(act('add').quickReply.items[0].action.fillInText,'新增替補 L-000001 ');
+  assert.equal(act('select',{staffId:'E1'}).code,'leave_replaced');
+  assert.equal(replacement.row[7],'已請假');
+  assert.deepEqual(Array.from(replacement.records.at(-1).slice(2,8)),['E1','2026-11-05','','','玉門','待回覆']);
+  assert.equal(act('skip').code,'already');
+  assert.equal(replacement.sends.length,1);
+});
+
 test('contact sends only messages in the active conversation to the three managers',()=>{
   const h=followupHarness();
   const manager2='U'+'c'.repeat(32);

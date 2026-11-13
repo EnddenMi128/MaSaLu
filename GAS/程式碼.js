@@ -217,6 +217,7 @@ function sendShiftRow_(rowNumber, force, shiftId, declinedVersion) {
     }
     const display = sheet.getRange(rowNumber, 1, 1, SHIFT_APP.SHIFT_HEADERS.length).getDisplayValues()[0];
     if (!force && current[9] === '已發送') return {code: 'skipped', message: '第 ' + rowNumber + ' 列已發送；如需再通知請使用「重新發送」。'};
+    if (current[7] === '已請假') return {code:'skipped',message:'這筆排班已請假。'};
     if (!force && ['同意', '不同意'].includes(String(current[7]))) return {code: 'skipped', message: '第 ' + rowNumber + ' 列已有回覆；如需重發請使用「重新發送」。'};
     const info = shiftInfo_(display);
     const recipient = recipientForRow_(current, employeeIndex_());
@@ -350,6 +351,8 @@ function doPost(e) {
       result = masaluDeliverFollowup_(input,masaluSwapResponse_(input));
     } else if (input.kind === 'leave_review') {
       result = masaluDeliverFollowup_(input,masaluLeaveReview_(input));
+    } else if (input.kind === 'leave_replacement') {
+      result = masaluLeaveReplacement_(input);
     } else if (input.kind === 'personal_calendar_menu') {
       result = masaluDeliverFollowup_(input,masaluRefreshOwnCalendarMenu_(input.lineUid));
     } else if (input.kind === 'enable_weekly_calendar_menu') {
@@ -407,7 +410,7 @@ function masaluNotifyAddedForDate_(delta) {
     const status = String(row[9] || '');
     const reply = String(row[7] || '');
     // Do not duplicate delivered or in-flight messages, or alter replied rows.
-    if (!['', '未發送', '發送失敗'].includes(status) || ['同意', '不同意'].includes(reply)) return;
+    if (!['', '未發送', '發送失敗'].includes(status) || ['同意', '不同意','已請假'].includes(reply)) return;
     candidates.push(index + 2);
   });
   const summary = {sent:0,failed:0,skipped:0,details:[]};
@@ -536,6 +539,7 @@ function handleShiftReply_(input) {
     }
     if (!ownsReply) return {ok:true,code:'wrong_user',message:'此排班通知不是發給這個 LINE 帳號，無法代替別人回覆。'};
     if (Number(row[11]) !== version) return {ok:true,code:'expired',message:'此按鈕已失效，請以團長最新的排班通知為準。'};
+    if (currentStatus==='已請假') return {ok:true,code:'expired',message:'這筆排班已請假。'};
     if (!repeated && ['同意','不同意'].includes(currentStatus)) {
       return {ok:true,code:'already',message:'這筆排班已回覆「'+currentStatus+'」。如需更改，請聯絡團長重發。'};
     }
@@ -895,10 +899,8 @@ function masaluLeaveReview_(input) {
     const book = openBook_();
     const sheetName = 'MaSaLu排班請求';
     if (!book.getSheetByName(sheetName) || !book.getSheetByName(MASALU_SERIAL_SHEET)) return reply('missing','找不到這筆請假申請。');
-    const ledger = masaluTable_(MASALU_SERIAL_SHEET,MASALU_SERIAL_HEADERS,book);
-    const key = ledger.rows.find(row=>row[1]===serial)?.[0];
     const requests = masaluTable_(sheetName,MASALU_FOLLOWUP_HEADERS,book);
-    const index = requests.rows.findIndex(row=>row[0]===key && row[8]==='請假申請');
+    const index = masaluFindLeaveRequest_(book,requests,serial);
     if (index<0) return reply('missing','找不到這筆請假申請。');
     const row = requests.rows[index];
     const details = ['請假申請 '+serial,'人員：'+row[5],'日期：'+masaluDate_(row[6]),'班別：'+row[7],
@@ -908,7 +910,8 @@ function masaluLeaveReview_(input) {
       quickReply:{items:masaluLeaveReviewActions_(serial).map(action=>({type:'action',action}))}};
     if (!decision) {
       const statusReply = reply('leave_review_status',details+'\n結果：'+row[11]);
-      if (row[14] || !['已核准','不核准'].includes(row[11])) return statusReply;
+      if (row[14] || !['已核准','不核准'].includes(row[11])) return row[11]==='已核准'
+        ? masaluLeaveReplacementLocked_({serial,decision:'list'},row,roster,statusReply) : statusReply;
       const action = masaluLeaveReviewActions_(serial)[row[11]==='已核准'?0:1];
       return {...statusReply,message:statusReply.message+'\n申請人通知尚未送達。',
         quickReply:{items:[{type:'action',action:{...action,label:'重試通知'}}]}};
@@ -926,14 +929,156 @@ function masaluLeaveReview_(input) {
       const recipient = row[4] ? roster[String(row[4]).trim()]?.uid : row[13];
       const sent = validLineUid_(recipient) && masaluPushWorkflowMessage_(recipient,
         {type:'text',text:details+'\n結果：'+status},'leave-result:'+serial);
-      if (!sent) return reply('leave_result_pending','已記錄 '+serial+' 為「'+status+'」。申請人通知尚未送達，可再點同一個審核選項重試。');
+      if (!sent) {
+        const pendingNotice = reply('leave_result_pending','已記錄 '+serial+' 為「'+status+'」。申請人通知尚未送達，可再點同一個審核選項重試。');
+        return status==='已核准' ? masaluLeaveReplacementLocked_({serial,decision:'list'},row,roster,pendingNotice) : pendingNotice;
+      }
       requests.sheet.getRange(index+2,15).setValue(new Date());
       SpreadsheetApp.flush();
     }
-    return reply('leave_reviewed','請假申請 '+serial+'｜'+status+'，已通知申請人。');
+    const reviewed = reply('leave_reviewed','請假申請 '+serial+'｜'+status+'，已通知申請人。');
+    return status==='已核准' ? masaluLeaveReplacementLocked_({serial,decision:'list'},row,roster,reviewed) : reviewed;
   } finally {
     lock.releaseLock();
   }
+}
+
+function masaluFindLeaveRequest_(book, requests, serial) {
+  const ledger = masaluTable_(MASALU_SERIAL_SHEET,MASALU_SERIAL_HEADERS,book);
+  const key = ledger.rows.find(row=>row[1]===serial)?.[0];
+  return requests.rows.findIndex(row=>row[0]===key && row[8]==='請假申請');
+}
+
+function masaluLeaveReplacement_(input) {
+  const {lineUid,serial,decision} = input;
+  const reply = (code,message)=>({ok:true,code,message});
+  if (!validLineUid_(lineUid) || !/^L-\d{6,}$/.test(serial || '') ||
+      !['list','skip','select','add','submit','retry'].includes(decision)) {
+    return reply('invalid','請從請假審核回覆重新操作。');
+  }
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  let result;
+  try {
+    const roster = employeeIndex_();
+    if (!['A01','A02','A03'].some(id=>roster[id]?.uid===lineUid))
+      return reply('unauthorized','只有團長可以安排請假替補。');
+    const book = openBook_();
+    const name = 'MaSaLu排班請求';
+    if (!book.getSheetByName(name) || !book.getSheetByName(MASALU_SERIAL_SHEET))
+      return reply('missing','找不到這筆請假申請。');
+    const requests = masaluTable_(name,MASALU_FOLLOWUP_HEADERS,book);
+    const row = requests.rows[masaluFindLeaveRequest_(book,requests,serial)];
+    if (row?.[11]!=='已核准') return reply('invalid','只有已核准的請假可以安排替補。');
+    result = masaluLeaveReplacementLocked_(input,row,roster);
+  } finally {
+    lock.releaseLock();
+  }
+  if (!result.replacementId) return result;
+  const sent = sendShiftRow_(null,false,result.replacementId);
+  if (sent.code==='sent' || sent.code==='skipped') {
+    return reply('leave_replaced','已安排 '+result.name+' 替補，排班確認通知已送出。');
+  }
+  return {...reply('leave_replacement_pending','替補已登記，通知尚未送出。'),
+    quickReply:{items:[masaluLeaveReplacementButton_(serial,'重試發送','retry')]}};
+}
+
+function masaluLeaveReplacementButton_(serial,label,decision,extra='') {
+  return {type:'action',action:{type:'postback',label:label.slice(0,20),
+    data:'action=leave_replacement&serial='+serial+'&decision='+decision+extra}};
+}
+
+function masaluLeaveReplacementLocked_(input, request, roster, receipt) {
+  const {serial,decision} = input;
+  const reply = (code,message)=>receipt ? {...receipt,message:receipt.message+'\n'+message} : {ok:true,code,message};
+  const sheet = shiftSheet_();
+  const number = findShiftRow_(sheet,String(request[2]));
+  const source = number && sheet.getRange(number,1,1,SHIFT_APP.SHIFT_HEADERS.length).getValues()[0];
+  const date = masaluDate_(request[6]);
+  if (!source || !date || Number(source[11])!==Number(request[3]) ||
+      String(source[2]||'').trim()!==String(request[4]||'').trim() ||
+      masaluDate_(source[3])!==date || source[6]!==request[7] ||
+      !['同意','已請假'].includes(source[7])) {
+    return reply('expired','原排班已變更，請查看最新月曆。');
+  }
+  const dayRows = sheet.getRange(2,1,sheet.getLastRow()-1,SHIFT_APP.SHIFT_HEADERS.length).getValues()
+    .filter(row=>masaluDate_(row[3])===date && row[6]);
+  const marker = '請假替補來源：'+serial;
+  const existing = dayRows.find(row=>row[16]===marker);
+  const replacedMarker = '[請假已替補:'+serial+']';
+  const closeSource = () => {
+    if (source[7]==='同意') {
+      sheet.getRange(number,8).setValue('已請假');
+      SpreadsheetApp.flush();
+    }
+  };
+  if (existing) {
+    if (!String(source[16]||'').includes(replacedMarker)) {
+      sheet.getRange(number,17).setValue(String(source[16]||'')+replacedMarker);
+    }
+    closeSource();
+    const name = roster[existing[2]]?.name || String(existing[12] || existing[2]);
+    if (['未發送','發送失敗','發送中'].includes(existing[9])) {
+      if (decision==='retry') return {replacementId:existing[1],name};
+      return {...reply('leave_replacement_pending','已登記 '+name+' 替補，通知尚未送出。'),
+        quickReply:{items:[masaluLeaveReplacementButton_(serial,'重試發送','retry')]}};
+    }
+    return reply('already','已安排 '+name+' 替補。');
+  }
+  if (String(source[16]||'').includes(replacedMarker)) {
+    closeSource();
+    return reply('already','這筆請假已處理替補，請查看最新月曆。');
+  }
+  if (String(source[16]||'').includes('[請假略過:'+serial+']')) {
+    closeSource();
+    return reply('already','已略過，無需替補。');
+  }
+  if (decision==='skip') {
+    sheet.getRange(number,17).setValue(String(source[16]||'')+'[請假略過:'+serial+']');
+    closeSource();
+    return reply('leave_replacement_skipped','已略過，無需替補。');
+  }
+  if (decision==='retry') return reply('missing','找不到這筆替補排班。');
+  const active = dayRows.filter(row=>!['不同意','已請假'].includes(row[7]));
+  const applicantId = String(request[4]||'').trim();
+  const applicantUid = roster[applicantId]?.uid || request[13];
+  const candidates = masaluReplacementCandidates_(active,roster)
+    .filter(id=>id!==applicantId && roster[id].uid!==applicantUid);
+  if (decision==='add') {
+    const prefix = '新增替補 '+serial+' ';
+    return {...reply('leave_replacement_add','請輸入「'+prefix+'姓名 LINE UID」。對方可傳「我的UID」給 MaSaLu 查詢。'),
+      quickReply:{items:[{type:'action',action:{type:'postback',label:'輸入人員',
+        data:'action=leave_replacement_keyboard',inputOption:'openKeyboard',fillInText:prefix}},
+      masaluLeaveReplacementButton_(serial,'返回','list')]}};
+  }
+  const staffId = String(input.staffId||'');
+  const tempName = String(input.name||'').trim();
+  const tempUid = String(input.targetUid||'');
+  const validTemp = decision==='submit' && tempName && tempName.length<=40 && !/^[=+\-@]/.test(tempName) &&
+    validLineUid_(tempUid) && tempUid!==applicantUid &&
+    !Object.values(roster).some(person=>person.uid===tempUid) && !active.some(row=>row[13]===tempUid);
+  if (validTemp || (decision==='select' && candidates.includes(staffId))) {
+    const id = Utilities.getUuid();
+    const expires = validTemp ? new Date(Date.now()+SHIFT_APP.TEMP_DAYS*86400000) : '';
+    sheet.appendRow([false,id,validTemp?'':staffId,source[3],source[4],source[5],source[6],
+      '待回覆','','未發送','',0,validTemp?tempName:'',validTemp?tempUid:'',expires,'',marker]);
+    sheet.getRange(number,17).setValue(String(source[16]||'')+replacedMarker);
+    closeSource();
+    SpreadsheetApp.flush();
+    return {replacementId:id,name:validTemp?tempName:(roster[staffId].name||staffId)};
+  }
+  const page = Math.min(Math.max(0,Number(input.page)||0),Math.max(0,Math.ceil(candidates.length/9)-1));
+  const items = [masaluLeaveReplacementButton_(serial,'略過','skip')];
+  for (const id of candidates.slice(page*9,page*9+9)) {
+    items.push(masaluLeaveReplacementButton_(serial,roster[id].name||id,'select','&staff='+encodeURIComponent(id)));
+  }
+  items.push(masaluLeaveReplacementButton_(serial,'新增','add'));
+  if (page>0) items.push(masaluLeaveReplacementButton_(serial,'上一頁','list','&page='+(page-1)));
+  if ((page+1)*9<candidates.length) items.push(masaluLeaveReplacementButton_(serial,'下一頁','list','&page='+(page+1)));
+  const message = decision==='select' ? '該人員已無法替補，請重新選擇。' :
+    decision==='submit' ? '新增失敗。請確認姓名與 LINE UID，已綁定的團員請直接點姓名。' :
+      date+' ・ '+source[6]+(candidates.length?'':'｜當日無可選團員');
+  return {...reply('leave_replacement_choices',message),quickReply:{items}};
 }
 
 /** Notify A01–A03, skipping the individual update for a manager receiving their own acceptance card. */
@@ -1018,7 +1163,7 @@ function masaluConfirmedDayRows_(rows) {
   const active = [];
   for (const row of rows) {
     const status = String(row[7] || '').trim();
-    if (status === '不同意' && String(row[16] || '').includes('[管理已略過]')) continue;
+    if (status === '已請假' || (status === '不同意' && String(row[16] || '').includes('[管理已略過]'))) continue;
     if (status !== '同意') return [];
     active.push(row);
   }
