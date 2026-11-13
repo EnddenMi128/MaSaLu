@@ -191,6 +191,9 @@ async function handleEvent(event, env, ctx) {
     if (['個人班表','更新個人班表','更新個人月曆'].includes(text)) {
       return handleFollowupEvent(event,{kind:'personal_calendar_menu',lineUid,eventId:eventId || event.message.id || ''},env);
     }
+    if (text === '缺班查詢') {
+      return handleFollowupEvent(event,{kind:'vacancy',choice:'list',lineUid,eventId:eventId || event.message.id || ''},env);
+    }
     const leaveReview = /^審核請假\s+(L-\d{6,})$/i.exec(text);
     if (leaveReview) {
       return handleFollowupEvent(event,{kind:'leave_review',lineUid,eventId:eventId || event.message.id || '',
@@ -223,6 +226,10 @@ async function handleEvent(event, env, ctx) {
   }
   if (event.type === 'postback') {
     const data = event.postback?.data;
+    const vacancy = typeof data==='string' && /^action=vacancy&choice=(list|apply|review|approve|reject)&id=([a-f0-9:-]{1,60}|L-\d{6,})$/i.exec(data);
+    if (vacancy) {
+      return handleFollowupEvent(event,{kind:'vacancy',lineUid,eventId,choice:vacancy[1],id:vacancy[2]},env);
+    }
     const leaveReview = typeof data==='string' && /^action=leave_review&serial=(L-\d{6,})&decision=(approve|reject)$/.exec(data);
     if (leaveReview) {
       return handleFollowupEvent(event,{kind:'leave_review',lineUid,eventId,serial:leaveReview[1],decision:leaveReview[2]},env);

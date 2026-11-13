@@ -1,7 +1,7 @@
 {
-  "alias": "masalu-tall-v3-2026-11-08",
-  "image": "calendar-2026-11-08-tall-v3.jpg",
-  "personal": "personal-grid-tall-v3-2026-11-08.json",
+  "alias": "masalu-tall-v4-2026-11-08",
+  "image": "calendar-2026-11-08-tall-v4.jpg",
+  "personal": "personal-grid-tall-v4-2026-11-08.json",
   "start": "2026-11-08",
   "end": "2026-11-21",
   "menu": {
@@ -199,7 +199,7 @@
         "bounds": {
           "x": 25,
           "y": 1500,
-          "width": 2450,
+          "width": 1855,
           "height": 160
         },
         "action": {
@@ -219,6 +219,19 @@
           "type": "message",
           "label": "個人班表",
           "text": "個人班表"
+        }
+      },
+      {
+        "bounds": {
+          "x": 1900,
+          "y": 1500,
+          "width": 575,
+          "height": 160
+        },
+        "action": {
+          "type": "message",
+          "label": "缺班查詢",
+          "text": "缺班查詢"
         }
       }
     ]

@@ -56,9 +56,9 @@ def generate(today, font_path, font_index):
                   stroke_width=2, stroke_fill=BG)
         area(box, f"{day.month} 月 {day.day} 日", f"{LIFF}?date={day.isoformat()}&from=richmenu")
 
-    box = (25, 1500, 2475, 1660)
+    box = (25, 1500, 1880, 1660)
     draw.rounded_rectangle(box, radius=12, fill=ACCENT)
-    draw.text((1250, 1580), "開啟完整月曆", font=fonts[76], fill=BG, anchor="mm")
+    draw.text((952, 1580), "開啟完整月曆", font=fonts[76], fill=BG, anchor="mm")
     area(box, "開啟完整月曆", LIFF)
     personal_button = (2070, 42, 2475, 168)
     draw.rounded_rectangle(personal_button, radius=16, fill=ACCENT)
@@ -67,7 +67,14 @@ def generate(today, font_path, font_index):
         "bounds": {"x": 2070, "y": 42, "width": 405, "height": 126},
         "action": {"type": "message", "label": "個人班表", "text": "個人班表"},
     })
-    image_name = f"calendar-{start.isoformat()}-tall-v3.jpg"
+    vacancy_button = (1900, 1500, 2475, 1660)
+    draw.rounded_rectangle(vacancy_button, radius=12, fill=ACCENT)
+    draw.text((2187, 1580), "缺班查詢", font=fonts[76], fill=BG, anchor="mm")
+    areas.append({
+        "bounds": {"x": 1900, "y": 1500, "width": 575, "height": 160},
+        "action": {"type": "message", "label": "缺班查詢", "text": "缺班查詢"},
+    })
+    image_name = f"calendar-{start.isoformat()}-tall-v4.jpg"
     image.save(output / image_name, quality=88, optimize=True)
     personal = image.resize((PERSONAL_WIDTH, PERSONAL_HEIGHT), Image.Resampling.LANCZOS).quantize(colors=236)
     palette = personal.getpalette()[:236 * 3] + [0] * (16 * 3)
@@ -78,13 +85,13 @@ def generate(today, font_path, font_index):
         mask = Image.new("L", (72, 32))
         ImageDraw.Draw(mask).text((0, 0), label, font=font, fill=255)
         glyphs[label] = base64.b64encode(bytes(value >= 96 for value in mask.tobytes())).decode()
-    personal_name = f"personal-grid-tall-v3-{start.isoformat()}.json"
+    personal_name = f"personal-grid-tall-v4-{start.isoformat()}.json"
     (output / personal_name).write_text(json.dumps({
         "width": PERSONAL_WIDTH, "height": PERSONAL_HEIGHT,
         "pixels": base64.b64encode(gzip.compress(personal.tobytes(), mtime=0)).decode(),
         "palette": palette, "glyphs": glyphs
     }, ensure_ascii=False), encoding="utf-8")
-    manifest = {"alias": f"masalu-tall-v3-{start.isoformat()}", "image": image_name,
+    manifest = {"alias": f"masalu-tall-v4-{start.isoformat()}", "image": image_name,
                 "personal": personal_name,
                 "start": start.isoformat(), "end": end.isoformat(),
                 "menu": {"size": {"width": WIDTH, "height": HEIGHT}, "selected": True,
