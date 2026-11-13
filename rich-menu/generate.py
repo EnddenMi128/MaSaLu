@@ -60,21 +60,16 @@ def generate(today, font_path, font_index):
     area(box, "開啟完整月曆", LIFF)
     image_name = f"calendar-{start.isoformat()}-masalu.jpg"
     image.save(output / image_name, quality=88, optimize=True)
-    personal = Image.blend(background, Image.new("RGB", (WIDTH, HEIGHT), BG), 0.72)
-    personal = personal.resize((1250, 422), Image.Resampling.LANCZOS)
-    personal_draw = ImageDraw.Draw(personal)
-    personal_draw.text((24, 32), "MaSaLu  個人班表", font=fonts[44], fill=ACCENT, anchor="lm")
-    personal_draw.rounded_rectangle((14, 372, 1236, 414), radius=8, fill=ACCENT)
-    personal_draw.text((625, 393), "開啟完整月曆", font=fonts[44].font_variant(size=24), fill=BG, anchor="mm")
-    personal = personal.quantize(colors=252)
-    palette = personal.getpalette()[:252 * 3] + [16, 12, 10, 255, 243, 229, 255, 135, 61, 255, 210, 145]
+    personal = image.resize((1250, 422), Image.Resampling.LANCZOS).quantize(colors=236)
+    palette = personal.getpalette()[:236 * 3] + [0] * (16 * 3)
+    palette += [16, 12, 10, 255, 243, 229, 255, 135, 61, 255, 210, 145]
     glyphs = {}
     font = ImageFont.truetype(font_path, 19, index=font_index)
-    for label in ("玉門", "田園", "其他", "已確認", "待回覆", *"0123456789/"):
+    for label in ("已確認", "待回覆"):
         mask = Image.new("L", (60, 26))
         ImageDraw.Draw(mask).text((0, 0), label, font=font, fill=255)
         glyphs[label] = base64.b64encode(bytes(value >= 96 for value in mask.tobytes())).decode()
-    personal_name = f"personal-list-{start.isoformat()}.json"
+    personal_name = f"personal-grid-{start.isoformat()}.json"
     (output / personal_name).write_text(json.dumps({
         "pixels": base64.b64encode(gzip.compress(personal.tobytes(), mtime=0)).decode(),
         "palette": palette, "glyphs": glyphs
