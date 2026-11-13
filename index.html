@@ -23,9 +23,9 @@ button:disabled{opacity:.45}
 .iconbtn,.btn{border:0;background:#fff;border-radius:13px;min-height:42px;padding:0 13px;font-weight:800;box-shadow:var(--shadow)}
 .iconbtn{width:42px;padding:0;font-size:18px}
 .calendar-card,.detail-card{width:100%;background:#fff;border-radius:20px;box-shadow:var(--shadow);overflow:hidden}
-.cal-head{display:flex;justify-content:space-between;align-items:center;padding:14px}
+.cal-head{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:14px}
 .month-title{font-size:18px;font-weight:900}
-.navs{display:flex;gap:7px}
+.navs{display:flex;align-items:center;flex-shrink:0;gap:7px}
 .week{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));padding:0 0 7px;text-align:center;color:var(--muted);font-size:11px}
 .grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));grid-auto-rows:minmax(90px,auto);border-top:1px solid var(--line)}
 .day{min-width:0;padding:3px;border-right:1px solid var(--line);border-bottom:1px solid var(--line);overflow:hidden;background:#fff}
@@ -44,7 +44,7 @@ button:disabled{opacity:.45}
 .detail-top{display:flex;justify-content:space-between;align-items:flex-start;gap:8px}
 .detail-title{font-size:20px;font-weight:900}
 .detail-date{font-size:14px;color:var(--muted);margin-top:3px}
-.editbtn{display:none;background:#111827;color:#fff;box-shadow:none;white-space:nowrap;font-size:17px;min-height:44px}
+.editbtn{display:none;align-items:center;background:#111827;color:#fff;box-shadow:none;white-space:nowrap;font-size:14px;min-height:44px;padding:0 10px}
 .shift-block{
   margin-top:12px;
   padding:10px;
@@ -158,8 +158,9 @@ input{width:100%;min-width:0;border:1px solid #e2e5ea;border-radius:11px;padding
     <div class="cal-head">
       <div class="month-title" id="monthTitle"></div>
       <div class="navs">
-        <button class="iconbtn" id="prevBtn">‹</button>
-        <button class="iconbtn" id="nextBtn">›</button>
+        <button class="iconbtn" id="prevBtn" aria-label="上個月">‹</button>
+        <button class="iconbtn" id="nextBtn" aria-label="下個月">›</button>
+        <button class="btn editbtn" id="editBtn">編輯排班</button>
       </div>
     </div>
     <div class="week"><div>日</div><div>一</div><div>二</div><div>三</div><div>四</div><div>五</div><div>六</div></div>
@@ -172,7 +173,6 @@ input{width:100%;min-width:0;border:1px solid #e2e5ea;border-radius:11px;padding
         <div class="detail-title" id="detailTitle">排班</div>
         <div class="detail-date" id="detailDate"></div>
       </div>
-      <button class="btn editbtn" id="editBtn">編輯排班</button>
     </div>
     <div id="detailBody"><div class="empty">載入中…</div></div>
   </section>
@@ -917,17 +917,17 @@ $('#sheetwrap').onclick=e=>{
   if(e.target.id==='sheetwrap')e.currentTarget.classList.remove('show');
 };
 
-$('#prevBtn').onclick=()=>{
-  viewMonth--;
-  if(viewMonth<0){viewMonth=11;viewYear--;}
+function changeMonth(offset){
+  const first=new Date(viewYear,viewMonth+offset,1);
+  viewYear=first.getFullYear();
+  viewMonth=first.getMonth();
+  selected=keyOf(first);
   renderCalendar();
-};
+  renderDetail();
+}
 
-$('#nextBtn').onclick=()=>{
-  viewMonth++;
-  if(viewMonth>11){viewMonth=0;viewYear++;}
-  renderCalendar();
-};
+$('#prevBtn').onclick=()=>changeMonth(-1);
+$('#nextBtn').onclick=()=>changeMonth(1);
 
 $('#todayBtn').onclick=()=>{
   viewYear=now.getFullYear();
