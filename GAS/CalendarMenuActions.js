@@ -52,11 +52,11 @@ function masaluCalendarMenuAction_(input) {
     .sort((a,b)=>a.date.localeCompare(b.date)||a.shift.localeCompare(b.shift));
 
   if (choice==='replies') {
-    const entries = upcoming.filter(row=>manager || row.staffId===employeeId).map(row=>({
-      text:[row.date,row.shift,manager?(roster[row.staffId]?.name || row.name || row.staffId):'',row.status || '待回覆']
-        .filter(Boolean).join('｜')
-    }));
-    return masaluCalendarActionPage_(entries,value,'replies','回覆確認','目前沒有可查詢的排班回覆。');
+    const entries = upcoming
+      .filter(row=>(!row.status || row.status==='待回覆') && (manager || row.staffId===employeeId))
+      .map(row=>({text:[row.date,row.shift,manager?(roster[row.staffId]?.name || row.name || row.staffId):'']
+        .filter(Boolean).join('｜')}));
+    return masaluCalendarActionPage_(entries,value,'replies','回覆確認｜尚未回覆','目前沒有尚未回覆的排班。');
   }
 
   const ownConfirmed = new Set(upcoming.filter(row=>row.staffId===employeeId && row.status==='同意')
