@@ -350,6 +350,8 @@ function doPost(e) {
       result = masaluDeliverFollowup_(input,masaluSwapResponse_(input));
     } else if (input.kind === 'leave_review') {
       result = masaluDeliverFollowup_(input,masaluLeaveReview_(input));
+    } else if (input.kind === 'personal_calendar_menu') {
+      result = masaluDeliverFollowup_(input,masaluRefreshOwnCalendarMenu_(input.lineUid));
     } else if (input.kind === 'manager_decision') {
       result = handleManagerDecision_(input);
     } else if (input.kind === 'bind_or_message') {

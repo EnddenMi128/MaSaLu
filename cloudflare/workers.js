@@ -185,6 +185,9 @@ async function handleEvent(event, env, ctx) {
   }
   if (event.type === 'message' && event.message?.type === 'text') {
     const text = String(event.message.text || '').trim();
+    if (text === '更新個人月曆') {
+      return handleFollowupEvent(event,{kind:'personal_calendar_menu',lineUid,eventId:eventId || event.message.id || ''},env);
+    }
     const leaveReview = /^審核請假\s+(L-\d{6,})$/i.exec(text);
     if (leaveReview) {
       return handleFollowupEvent(event,{kind:'leave_review',lineUid,eventId:eventId || event.message.id || '',

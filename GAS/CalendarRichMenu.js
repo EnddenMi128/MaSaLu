@@ -18,19 +18,9 @@ function masaluRefreshWeeklyCalendarRichMenu() {
 }
 
 function masaluUpdateCalendarRichMenu_(manual) {
-  const today = Utilities.formatDate(new Date(),'Asia/Taipei','yyyy-MM-dd');
-  const sunday = new Date(today+'T00:00:00Z');
-  sunday.setUTCDate(sunday.getUTCDate()-sunday.getUTCDay());
-  const start = sunday.toISOString().slice(0,10);
-  const properties = PropertiesService.getScriptProperties();
-  const token = PropertiesService.getScriptProperties().getProperty('LINE_CHANNEL_ACCESS_TOKEN');
-  if (!token) throw new Error('缺少 LINE_CHANNEL_ACCESS_TOKEN');
-  const assets = 'https://raw.githubusercontent.com/EnddenMi128/MaSaLu/main/rich-menu/';
-  const manifest = UrlFetchApp.fetch(assets+'menu.json',{muteHttpExceptions:true});
-  if (manifest.getResponseCode() !== 200) throw new Error('兩週月曆圖文選單尚未發布');
-  const page = JSON.parse(manifest.getContentText());
-  if (!page?.menu || !page.alias || !page.image || !page.personal) throw new Error('月曆選單資料不完整');
-  if (page.start !== start) {
+  const settings = masaluCalendarMenuSettings_();
+  const {start, properties, token, assets, page} = settings;
+  if (!page) {
     if (manual) throw new Error('本週月曆圖片正在更新，稍後會自動重試。');
     return;
   }
@@ -47,6 +37,42 @@ function masaluUpdateCalendarRichMenu_(manual) {
     lock.releaseLock();
   }
   return page;
+}
+
+function masaluCalendarMenuSettings_() {
+  const today = Utilities.formatDate(new Date(),'Asia/Taipei','yyyy-MM-dd');
+  const sunday = new Date(today+'T00:00:00Z');
+  sunday.setUTCDate(sunday.getUTCDate()-sunday.getUTCDay());
+  const start = sunday.toISOString().slice(0,10);
+  const properties = PropertiesService.getScriptProperties();
+  const token = PropertiesService.getScriptProperties().getProperty('LINE_CHANNEL_ACCESS_TOKEN');
+  if (!token) throw new Error('缺少 LINE_CHANNEL_ACCESS_TOKEN');
+  const assets = 'https://raw.githubusercontent.com/EnddenMi128/MaSaLu/main/rich-menu/';
+  const manifest = UrlFetchApp.fetch(assets+'menu.json',{muteHttpExceptions:true});
+  if (manifest.getResponseCode() !== 200) throw new Error('兩週月曆圖文選單尚未發布');
+  const page = JSON.parse(manifest.getContentText());
+  if (!page?.menu || !page.alias || !page.image || !page.personal) throw new Error('月曆選單資料不完整');
+  return {start, properties, token, assets, page:page.start === start ? page : null};
+}
+
+function masaluRefreshOwnCalendarMenu_(uid) {
+  if (!validLineUid_(uid)) return {ok:true,code:'invalid',message:'無法識別 LINE 帳號。'};
+  const {properties, token, assets, page} = masaluCalendarMenuSettings_();
+  if (!page) return {ok:true,code:'menu_waiting',message:'本週月曆圖片正在更新，請稍後再試。'};
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    const result = masaluSyncPersonalMenus_(page,assets,token,properties,uid);
+    const messages = {
+      unbound:'請先綁定團員帳號，再更新個人月曆。',
+      empty:'本週與下週沒有你的班次。',
+      failed:'個人月曆暫時無法套用，請稍後再輸入「更新個人月曆」。',
+      linked:'已套用個人月曆（'+page.start+' 至 '+page.end+'），請返回 LINE 聊天列表再開啟聊天室查看。'
+    };
+    return {ok:true,code:result,message:messages[result]};
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 function masaluPrepareCalendarRichMenu_(page,assets,token) {

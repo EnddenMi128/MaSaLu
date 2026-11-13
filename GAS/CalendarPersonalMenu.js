@@ -1,5 +1,5 @@
 /** The public template contains no employee data. All overlays are drawn here. */
-function masaluSyncPersonalMenus_(page, assets, token, properties) {
+function masaluSyncPersonalMenus_(page, assets, token, properties, requestedUid) {
   const data = masaluLoad_();
   const calendar = masaluBootstrap_(data);
   const shifts = new Map(calendar.shifts.filter(shift => !shift.isOff).map(shift => [shift.id, shift.name]));
@@ -22,12 +22,14 @@ function masaluSyncPersonalMenus_(page, assets, token, properties) {
   const saved = properties.getProperties();
   let template;
   let failures = 0;
-  for (const uid of new Set([...targets.keys(), ...Object.keys(saved).filter(key => key.startsWith(prefix)).map(key => key.slice(prefix.length))])) {
+  const users = requestedUid ? [requestedUid] :
+    new Set([...targets.keys(), ...Object.keys(saved).filter(key => key.startsWith(prefix)).map(key => key.slice(prefix.length))]);
+  for (const uid of users) {
     if (!validLineUid_(uid)) continue;
     const key = prefix + uid;
-    const state = JSON.parse(saved[key] || '{}');
     const rows = (assignments.get(targets.get(uid)) || []).sort();
     try {
+      const state = JSON.parse(saved[key] || '{}');
       if (state.retired) {
         masaluCalendarRichMenuRequest_('richmenu/'+state.retired,token,'delete',null,404);
         delete state.retired;
@@ -36,10 +38,14 @@ function masaluSyncPersonalMenus_(page, assets, token, properties) {
       const signature = rows.length ? Utilities.base64EncodeWebSafe(
         Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, JSON.stringify([page.start, page.personal, rows]))
       ) : '';
-      if (signature && state.signature === signature && state.id && !state.pending) continue;
-      if (!signature && !state.id && !state.pending) continue;
       const userPath = 'user/'+uid+'/richmenu';
+      if (signature && state.signature === signature && state.id && !state.pending) {
+        if (!requestedUid) continue;
+        if (masaluCalendarMenuLinked_(userPath,state.id,token)) return 'linked';
+        // The account or menu was changed outside this script. Rebuild it.
+      }
       if (!signature) {
+        if (!state.id && !state.pending) continue;
         const linked = masaluCalendarRichMenuRequest_(userPath,token,'get',null,404);
         if (linked.getResponseCode() === 200 &&
             [state.id,state.pending?.id].includes(JSON.parse(linked.getContentText()).richMenuId)) {
@@ -83,6 +89,7 @@ function masaluSyncPersonalMenus_(page, assets, token, properties) {
       }
       // Retry an interrupted link only while its schedule and owner are current.
       masaluCalendarRichMenuRequest_(userPath+'/'+state.pending.id,token,'post');
+      if (requestedUid && !masaluCalendarMenuLinked_(userPath,state.pending.id,token)) return 'failed';
       const next = {...state.pending,retired:state.id || ''};
       properties.setProperty(key,JSON.stringify(next));
       if (next.retired) {
@@ -96,7 +103,17 @@ function masaluSyncPersonalMenus_(page, assets, token, properties) {
       console.error('個人月曆選單更新失敗 '+(String(error.message).match(/HTTP \d+/)?.[0] || ''));
     }
   }
+  if (requestedUid) {
+    if (failures) return 'failed';
+    if (!targets.has(requestedUid)) return 'unbound';
+    return assignments.get(targets.get(requestedUid))?.length ? 'linked' : 'empty';
+  }
   return failures;
+}
+
+function masaluCalendarMenuLinked_(userPath,id,token) {
+  const response = masaluCalendarRichMenuRequest_(userPath,token,'get',null,404);
+  return response.getResponseCode() === 200 && JSON.parse(response.getContentText()).richMenuId === id;
 }
 
 function masaluPersonalMenuImage_(template, page, rows) {
