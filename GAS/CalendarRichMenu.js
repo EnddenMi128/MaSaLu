@@ -62,14 +62,16 @@ function masaluRefreshOwnCalendarMenu_(uid) {
   const lock = LockService.getScriptLock();
   lock.waitLock(20000);
   try {
-    const result = masaluSyncPersonalMenus_(page,assets,token,properties,uid);
+    const {status, entries} = masaluSyncPersonalMenus_(page,assets,token,properties,uid);
     const messages = {
-      unbound:'請先綁定團員帳號，再更新個人月曆。',
+      unbound:'請先綁定團員帳號，再更新個人班表。',
       empty:'本週與下週沒有你的班次。',
-      failed:'個人月曆暫時無法套用，請稍後再輸入「更新個人月曆」。',
-      linked:'已套用個人月曆（'+page.start+' 至 '+page.end+'），請返回 LINE 聊天列表再開啟聊天室查看。'
+      failed:'圖文選單暫時無法套用。稍後可再輸入「個人班表」。',
+      linked:'已套用個人班表（'+page.start+' 至 '+page.end+'），請返回 LINE 聊天列表再開啟聊天室查看。'
     };
-    return {ok:true,code:result,message:messages[result]};
+    const list = entries.map(({date,sites,confirmed})=>
+      date.slice(5).replace('-','/')+'｜'+sites.join('、')+'｜'+(confirmed?'已確認':'待回覆'));
+    return {ok:true,code:status,message:list.length ? ['個人班表',...list,'',messages[status]].join('\n') : messages[status]};
   } finally {
     lock.releaseLock();
   }

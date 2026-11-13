@@ -19,6 +19,8 @@ function masaluSyncPersonalMenus_(page, assets, token, properties, requestedUid)
     assignments.get(row.staffId).push([row.date, site, row.replyStatus === '同意']);
   }
   const prefix = 'MASALU_PERSONAL_MENU_';
+  const ownRows = requestedUid ? assignments.get(targets.get(requestedUid)) || [] : [];
+  const ownEntries = requestedUid ? masaluPersonalMenuEntries_(page,ownRows) : [];
   const saved = properties.getProperties();
   let template;
   let failures = 0;
@@ -41,7 +43,7 @@ function masaluSyncPersonalMenus_(page, assets, token, properties, requestedUid)
       const userPath = 'user/'+uid+'/richmenu';
       if (signature && state.signature === signature && state.id && !state.pending) {
         if (!requestedUid) continue;
-        if (masaluCalendarMenuLinked_(userPath,state.id,token)) return 'linked';
+        if (masaluCalendarMenuLinked_(userPath,state.id,token)) return {status:'linked',entries:ownEntries};
         // The account or menu was changed outside this script. Rebuild it.
       }
       if (!signature) {
@@ -69,13 +71,13 @@ function masaluSyncPersonalMenus_(page, assets, token, properties, requestedUid)
           if (source.pixels.length !== 1250*422 || source.palette.length !== 768) throw new Error('個人月曆底圖格式錯誤');
           template = source;
         }
-        const image = masaluPersonalMenuImage_(template,page,rows);
+        const entries = masaluPersonalMenuEntries_(page,rows);
+        const image = masaluPersonalMenuImage_(template,entries);
         const menu = JSON.parse(JSON.stringify(page.menu));
         menu.name = 'MaSaLu 個人排班 '+page.start;
         menu.size = {width:1250,height:422};
-        menu.areas.forEach(area => {
-          for (const field of ['x','y','width','height']) area.bounds[field] = Math.floor(area.bounds[field]/2);
-        });
+        menu.areas = entries.map(({bounds,action})=>({bounds,action}));
+        menu.areas.push({bounds:{x:14,y:372,width:1222,height:42},action:page.menu.areas.at(-1).action});
         const created = masaluCalendarRichMenuRequest_('richmenu',token,'post',menu);
         const id = JSON.parse(created.getContentText()).richMenuId;
         try {
@@ -89,7 +91,7 @@ function masaluSyncPersonalMenus_(page, assets, token, properties, requestedUid)
       }
       // Retry an interrupted link only while its schedule and owner are current.
       masaluCalendarRichMenuRequest_(userPath+'/'+state.pending.id,token,'post');
-      if (requestedUid && !masaluCalendarMenuLinked_(userPath,state.pending.id,token)) return 'failed';
+      if (requestedUid && !masaluCalendarMenuLinked_(userPath,state.pending.id,token)) return {status:'failed',entries:ownEntries};
       const next = {...state.pending,retired:state.id || ''};
       properties.setProperty(key,JSON.stringify(next));
       if (next.retired) {
@@ -104,9 +106,9 @@ function masaluSyncPersonalMenus_(page, assets, token, properties, requestedUid)
     }
   }
   if (requestedUid) {
-    if (failures) return 'failed';
-    if (!targets.has(requestedUid)) return 'unbound';
-    return assignments.get(targets.get(requestedUid))?.length ? 'linked' : 'empty';
+    if (failures) return {status:'failed',entries:ownEntries};
+    if (!targets.has(requestedUid)) return {status:'unbound',entries:[]};
+    return {status:ownEntries.length ? 'linked' : 'empty',entries:ownEntries};
   }
   return failures;
 }
@@ -116,18 +118,7 @@ function masaluCalendarMenuLinked_(userPath,id,token) {
   return response.getResponseCode() === 200 && JSON.parse(response.getContentText()).richMenuId === id;
 }
 
-function masaluPersonalMenuImage_(template, page, rows) {
-  const width = 1250, height = 422;
-  const pixels = Uint8Array.from(template.pixels);
-  const glyphs = Object.fromEntries(Object.entries(template.glyphs).map(([label,value])=>[label,Utilities.base64Decode(value)]));
-  const drawText = (label,x,y,color) => {
-    const mask = glyphs[label];
-    for (let line=0; line<26; line++) {
-      for (let column=0; column<60; column++) {
-        if (mask[line*60+column]) pixels[(y+line)*width+x+column] = color;
-      }
-    }
-  };
+function masaluPersonalMenuEntries_(page, rows) {
   const days = new Map();
   for (const [date,site,confirmed] of rows) {
     if (!days.has(date)) days.set(date,{sites:new Set(),confirmed:true});
@@ -135,14 +126,42 @@ function masaluPersonalMenuImage_(template, page, rows) {
     day.sites.add(site);
     day.confirmed = day.confirmed && confirmed;
   }
-  for (const [date,day] of days) {
+  if (!days.size) return [];
+  const perColumn = days.size > 6 ? Math.ceil(days.size/2) : days.size;
+  const cardWidth = days.size > 6 ? 605 : 1222;
+  const step = Math.floor(300 / perColumn);
+  return [...days].sort(([a],[b])=>a.localeCompare(b)).map(([date,day],index)=>{
     const offset = (Date.parse(date)-Date.parse(page.start))/86400000;
-    const bounds = page.menu.areas[offset].bounds;
-    const x = Math.floor(bounds.x/2)+9;
-    const y = Math.floor(bounds.y/2)+40;
-    for (let line=y; line<y+62; line++) pixels.fill(252,line*width+x,line*width+x+149);
-    [...day.sites].forEach((site,index)=>drawText(site,x+5+index*47,y+3,253));
-    drawText(day.confirmed?'已確認':'待回覆',x+5,y+30,day.confirmed?254:255);
+    return {date,sites:[...day.sites],confirmed:day.confirmed,action:page.menu.areas[offset].action,
+      bounds:{x:14+Math.floor(index/perColumn)*617,y:66+(index%perColumn)*step,width:cardWidth,height:step-5}};
+  });
+}
+
+function masaluPersonalMenuImage_(template, entries) {
+  const width = 1250, height = 422;
+  const pixels = Uint8Array.from(template.pixels);
+  const glyphs = Object.fromEntries(Object.entries(template.glyphs).map(([label,value])=>[label,Utilities.base64Decode(value)]));
+  const drawText = (label,x,y,color,scale) => {
+    const mask = glyphs[label];
+    for (let line=0; line<26; line++) {
+      for (let column=0; column<60; column++) {
+        if (!mask[line*60+column]) continue;
+        for (let dy=0; dy<scale; dy++) {
+          const start = (y+line*scale+dy)*width+x+column*scale;
+          pixels.fill(color,start,start+scale);
+        }
+      }
+    }
+  };
+  for (const {date,sites,confirmed,bounds} of entries) {
+    const {x,y,width:cardWidth,height:cardHeight} = bounds;
+    for (let line=y; line<y+cardHeight; line++) pixels.fill(252,line*width+x,line*width+x+cardWidth);
+    const scale = cardHeight>=58 ? 2 : 1;
+    const top = y+Math.floor((cardHeight-26*scale)/2);
+    const dateLabel = date.slice(5).replace('-', '/');
+    [...dateLabel].forEach((char,index)=>drawText(char,x+16+index*13*scale,top,254,scale));
+    sites.forEach((site,index)=>drawText(site,x+110*scale+index*52*scale,top,253,scale));
+    drawText(confirmed?'已確認':'待回覆',x+cardWidth-80*scale,top,confirmed?254:255,scale);
   }
   return masaluIndexedPng_(width,height,pixels,template.palette);
 }
