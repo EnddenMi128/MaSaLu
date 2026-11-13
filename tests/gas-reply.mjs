@@ -542,12 +542,16 @@ test('leave approval immediately offers available names, skip and add, and reche
   const act=(decision,extra)=>h.ctx.masaluLeaveReplacement_({...input,decision,...extra});
   const approved=h.ctx.masaluLeaveReview_({...input,decision:'approve'});
   assert.deepEqual(Array.from(approved.quickReply.items,item=>item.action.label),['略過','團長','勇翰','王玲','新增']);
+  assert.equal(approved.quickReply.items[0].action.displayText,'略過替補');
+  assert.equal(approved.quickReply.items[3].action.displayText,'選擇替補：王玲');
   assert.equal(act('select',{staffId:'E2'}).code,'leave_replacement_choices');
   const add=approved.quickReply.items.at(-1).action;
   assert.equal(add.type,'uri');
   assert.equal(add.uri,'https://liff.line.me/2010020470-VBPZRUQ9?open=add-staff&date=2026-11-05');
   assert.equal(act('add').quickReply.items[0].action.uri,add.uri);
-  assert.equal(act('select',{staffId:'E1'}).code,'leave_replaced');
+  const selected=act('select',{staffId:'E1'});
+  assert.equal(selected.code,'leave_replaced');
+  assert.match(selected.message,/已安排 王玲 替補.*通知已送出/);
   assert.equal(replacement.row[7],'已請假');
   assert.deepEqual(Array.from(replacement.records.at(-1).slice(2,8)),['E1','2026-11-05','','','玉門','待回覆']);
   assert.equal(act('skip').code,'already');

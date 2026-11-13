@@ -265,6 +265,9 @@ async function handleEvent(event, env, ctx) {
     const kind = parsed ? 'shift_reply' : followup ? 'shift_followup' : swap ? 'swap_response' : 'manager_decision';
     const payload = {kind, lineUid, eventId, timestamp:event.timestamp, ...(parsed || followup || swap || manager)};
     if (followup || swap) return handleFollowupEvent(event,payload,env);
+    if (manager && ['skip','select'].includes(manager.decision)) {
+      return handleFollowupEvent(event,payload,env);
+    }
     const result = await sendToGas(payload,env);
     const replied = await replyLineSafe(event.replyToken,result.message,env,result.quickReply,result.replyMessage);
     if (!replied && kind==='shift_reply' && result.serial && result.message) {
@@ -278,26 +281,38 @@ async function handleEvent(event, env, ctx) {
 async function handleFollowupEvent(event, payload, env) {
   const result = await sendToGas(payload,env);
   if (result.delivered || !result.message) return;
-  if (!await replyLineSafe(event.replyToken,result.message,env,result.quickReply)) {
-    throw new Error('LINE follow-up reply not delivered: '+result.code);
+  if (await replyLineSafe(event.replyToken,result.message,env,result.quickReply)) return;
+  if (payload.kind==='leave_replacement' || payload.kind==='manager_decision') {
+    const retryKey = await replacementReceiptRetryKey(payload.eventId, payload.lineUid);
+    await pushLineConfirmation(payload.lineUid,result.message,env,result.quickReply,retryKey);
+    return;
   }
+  throw new Error('LINE follow-up reply not delivered: '+result.code);
 }
 
 async function handleBindingMessage(replyToken, lineUid, text, eventId, env) {
   const result = await sendToGas({kind: 'bind_or_message', lineUid, text, eventId}, env);
   const replied = await replyLineSafe(replyToken, result.message, env);
   if (result.code === 'bound' && result.message && !replied) {
-    await pushBindingConfirmation(lineUid, result.message, env);
+    await pushLineConfirmation(lineUid, result.message, env);
   }
 }
 
-async function pushBindingConfirmation(lineUid, text, env) {
+async function replacementReceiptRetryKey(eventId, lineUid) {
+  if (!eventId) return crypto.randomUUID();
+  const input = new TextEncoder().encode('replacement-receipt:'+lineUid+':'+eventId);
+  const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', input));
+  const hex = Array.from(digest.slice(0,16), byte => byte.toString(16).padStart(2,'0')).join('');
+  return hex.slice(0,8)+'-'+hex.slice(8,12)+'-4'+hex.slice(13,16)+'-8'+hex.slice(17,20)+'-'+hex.slice(20,32);
+}
+
+async function pushLineConfirmation(lineUid, text, env, quickReply, retryKey = crypto.randomUUID()) {
   const headers = {
     'content-type': 'application/json; charset=UTF-8',
     authorization: 'Bearer ' + env.LINE_CHANNEL_ACCESS_TOKEN,
-    'x-line-retry-key': crypto.randomUUID()
+    'x-line-retry-key': retryKey
   };
-  const body = JSON.stringify({to: lineUid, messages: [{type: 'text', text: String(text).slice(0, 1800)}]});
+  const body = JSON.stringify({to: lineUid, messages: [lineTextMessage(text, quickReply)]});
   for (let attempt = 0; attempt < 2; attempt++) {
     let response;
     try {
@@ -310,7 +325,7 @@ async function pushBindingConfirmation(lineUid, text, env) {
     }
     if (response.ok || (response.status === 409 && response.headers.has('x-line-accepted-request-id'))) return;
     if (response.status < 500 || attempt === 1) {
-      throw new Error('LINE binding confirmation push HTTP ' + response.status);
+      throw new Error('LINE confirmation push HTTP ' + response.status);
     }
   }
 }
@@ -343,7 +358,7 @@ async function replyLineSafe(replyToken, text, env, quickReply, replyMessage) {
 
 async function replyLine(replyToken, text, env, quickReply, replyMessage) {
   if (!replyToken) return;
-  const message = replyMessage || {type:'text',text:String(text).slice(0,1800),...(quickReply?{quickReply}:{})};
+  const message = replyMessage || lineTextMessage(text, quickReply);
   const response = await fetch('https://api.line.me/v2/bot/message/reply', {
     method: 'POST',
     headers: {
@@ -353,6 +368,10 @@ async function replyLine(replyToken, text, env, quickReply, replyMessage) {
     body: JSON.stringify({replyToken, messages: [message]})
   });
   if (!response.ok) throw new Error('LINE reply HTTP ' + response.status);
+}
+
+function lineTextMessage(text, quickReply) {
+  return {type:'text',text:String(text).slice(0,1800),...(quickReply?{quickReply}:{})};
 }
 
 

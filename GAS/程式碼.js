@@ -983,13 +983,16 @@ function masaluLeaveReplacement_(input) {
   if (sent.code==='sent' || sent.code==='skipped') {
     return reply('leave_replaced','已安排 '+result.name+' 替補，排班確認通知已送出。');
   }
-  return {...reply('leave_replacement_pending','替補已登記，通知尚未送出。'),
+  return {...reply('leave_replacement_pending','已安排 '+result.name+' 替補，排班確認通知尚未送出。請點「重試發送」。'),
     quickReply:{items:[masaluLeaveReplacementButton_(serial,'重試發送','retry')]}};
 }
 
 function masaluLeaveReplacementButton_(serial,label,decision,extra='') {
+  const displayText = decision==='skip' ? '略過替補' :
+    decision==='select' ? ('選擇替補：'+label).slice(0,100) : '';
   return {type:'action',action:{type:'postback',label:label.slice(0,20),
-    data:'action=leave_replacement&serial='+serial+'&decision='+decision+extra}};
+    data:'action=leave_replacement&serial='+serial+'&decision='+decision+extra,
+    ...(displayText?{displayText}:{})}};
 }
 
 function masaluLeaveAddStaffButton_(date) {
