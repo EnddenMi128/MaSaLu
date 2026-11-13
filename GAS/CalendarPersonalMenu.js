@@ -200,9 +200,9 @@ function masaluPersonalMenuImage_(template, entries) {
     for (let line=0; line<18; line++) {
       for (let column=0; column<16; column++) {
         if (!(template.rosterGlyphs[index*36+line*2+(column>>3)] & (128>>(column%8)))) continue;
-        for (let dy=0;dy<scale;dy++) {
-          const start=(y+line*scale+dy)*width+x+column*scale;
-          pixels.fill(color,start,start+scale);
+        for (let targetY=Math.floor(line*scale); targetY<Math.floor((line+1)*scale); targetY++) {
+          const start=(y+targetY)*width+x;
+          pixels.fill(color,start+Math.floor(column*scale),start+Math.floor((column+1)*scale));
         }
       }
     }
@@ -231,18 +231,18 @@ function masaluPersonalMenuImage_(template, entries) {
     drawText(confirmed?'已確認':'待回覆',x+105,y+4,confirmed?254:255,1);
     const shown = groups.length > 3 ? groups.slice(0,2) : groups;
     shown.forEach(({location,people},index)=>{
-      const top = y+32+index*25;
-      rectangle(x+4,top,161,23,252);
+      const top = y+34+index*25;
+      rectangle(x+4,top,161,24,252);
       const label = Array.from(location).slice(0,2);
-      label.forEach((char,i)=>drawGlyph(char,x+6+i*16,top+3,253,1));
-      const limit = people.length > 6 ? 5 : 6;
+      label.forEach((char,i)=>drawGlyph(char,x+5+i*22,top,253,1.375));
+      const limit = people.length > 4 ? 3 : 4;
       people.slice(0,limit).forEach((person,i)=>{
-        const left = x+40+i*20;
+        const left = x+51+i*26;
         const {fill,ink} = tileColor(person.color);
-        rectangle(left,top+2,19,19,person.own?254:fill);
-        drawGlyph(person.mark,left+1,top+3,person.own?252:ink,1);
+        rectangle(left,top,24,24,person.own?254:fill);
+        drawGlyph(person.mark,left+1,top,person.own?252:ink,1.375);
       });
-      if (people.length>limit) drawGlyph('+',x+140,top+3,255,1);
+      if (people.length>limit) drawGlyph('+',x+135,top,255,1.375);
     });
     if (groups.length>shown.length) drawGlyph('+',x+6,y+85,255,1);
   }
