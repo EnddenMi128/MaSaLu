@@ -44,7 +44,9 @@ button:disabled{opacity:.45}
 .detail-top{display:flex;justify-content:space-between;align-items:flex-start;gap:8px}
 .detail-title{font-size:20px;font-weight:900}
 .detail-date{font-size:14px;color:var(--muted);margin-top:3px}
-.editbtn{display:none;align-items:center;background:#111827;color:#fff;box-shadow:none;white-space:nowrap;font-size:14px;min-height:44px;padding:0 10px}
+.app:has(.editbtn:not([hidden])){padding-bottom:calc(78px + env(safe-area-inset-bottom))}
+.editbtn{position:fixed;right:calc(14px + env(safe-area-inset-right));bottom:calc(14px + env(safe-area-inset-bottom));z-index:10;display:inline-flex;align-items:center;background:#111827;color:#fff;white-space:nowrap;font-size:15px;min-height:44px}
+.editbtn[hidden]{display:none}
 .shift-block{
   margin-top:12px;
   padding:10px;
@@ -160,7 +162,6 @@ input{width:100%;min-width:0;border:1px solid #e2e5ea;border-radius:11px;padding
       <div class="navs">
         <button class="iconbtn" id="prevBtn" aria-label="上個月">‹</button>
         <button class="iconbtn" id="nextBtn" aria-label="下個月">›</button>
-        <button class="btn editbtn" id="editBtn">編輯排班</button>
       </div>
     </div>
     <div class="week"><div>日</div><div>一</div><div>二</div><div>三</div><div>四</div><div>五</div><div>六</div></div>
@@ -178,6 +179,7 @@ input{width:100%;min-width:0;border:1px solid #e2e5ea;border-radius:11px;padding
   </section>
 
   <div class="status" id="statusText"></div>
+  <button class="btn editbtn" id="editBtn" type="button" hidden>編輯排班</button>
 </div>
 
 
@@ -393,7 +395,7 @@ function applyBootstrap(res,cached=false){
   state.viewer=res.viewer||null;
   state.revision=res.revision||null;
   const manager=Boolean(state.viewer?.manager);
-  $('#editBtn').style.display=manager?'inline-flex':'none';
+  $('#editBtn').hidden=!manager;
   $('#appName').title=manager?'排班管理員':'個人排班';
   $('#appName').textContent=state.settings.app_name||'MASALU';
   $('#statusText').textContent=`${manager?'管理月曆':'個人月曆'} · ${state.viewer?.name||''} · ${cached?'快取預覽，正在同步':'已同步'}`;
@@ -438,7 +440,7 @@ async function loadBootstrap(){
   }catch(err){
     if(!hadCache){
       state.viewer=null;
-      $('#editBtn').style.display='none';
+      $('#editBtn').hidden=true;
       $('#statusText').textContent='連線失敗';
       $('#detailBody').innerHTML=`<div class="empty">${escapeHtml(err.message)}</div>`;
     }else $('#statusText').textContent='快取預覽 · 同步暫時失敗';
