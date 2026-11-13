@@ -66,22 +66,28 @@ function masaluSyncPersonalMenus_(page, assets, token, properties, requestedUid)
           if (!page.personal.startsWith('personal-grid-')) throw new Error('個人月曆新版底圖尚未同步');
           const source = JSON.parse(UrlFetchApp.fetch(assets+page.personal).getContentText());
           source.pixels = masaluUnpackMenuAsset_(Utilities.base64Decode(source.pixels));
-          if (source.pixels.length !== 1250*422 || source.palette.length !== 768) throw new Error('個人月曆底圖格式錯誤');
+          source.width ??= 1250;
+          source.height ??= 422;
+          if (source.pixels.length !== source.width*source.height || source.palette.length !== 768 ||
+              !Number.isInteger(source.width) || !Number.isInteger(source.height)) throw new Error('個人月曆底圖格式錯誤');
+          source.areas = page.menu.areas.map(({bounds,action})=>({
+            action,
+            bounds:masaluScaleCalendarBounds_(bounds,page.menu.size,source)
+          }));
           stage = '讀取與解壓字型';
           source.rosterGlyphs = masaluUnpackMenuAsset_(UrlFetchApp.fetch(assets+'roster-glyphs.gz').getContent());
           if (source.rosterGlyphs.length !== (95+0xa000-0x3400)*36) throw new Error('班表字型格式錯誤');
           template = source;
         }
         stage = '繪製個人班表';
-        const image = masaluPersonalMenuImage_(template,entries);
+        const entriesAtImageSize = entries.map(entry=>({...entry,
+          bounds:masaluScaleCalendarBounds_(entry.bounds,page.menu.size,template)
+        }));
+        const image = masaluPersonalMenuImage_(template,entriesAtImageSize);
         const menu = JSON.parse(JSON.stringify(page.menu));
         menu.name = 'MaSaLu 個人排班 '+page.start;
-        menu.size = {width:1250,height:422};
-        menu.areas = menu.areas.map(({bounds,action})=>({action,bounds:{
-          x:Math.floor(bounds.x/2),y:Math.floor(bounds.y/2),
-          width:Math.floor((bounds.x+bounds.width)/2)-Math.floor(bounds.x/2),
-          height:Math.floor((bounds.y+bounds.height)/2)-Math.floor(bounds.y/2)
-        }}));
+        menu.size = {width:template.width,height:template.height};
+        menu.areas = template.areas;
         stage = '建立 LINE 選單';
         const created = masaluCalendarRichMenuRequest_('richmenu',token,'post',menu);
         const id = JSON.parse(created.getContentText()).richMenuId;
@@ -178,8 +184,18 @@ function masaluPersonalMenuEntries_(page, rows) {
   });
 }
 
+function masaluScaleCalendarBounds_(bounds, source, target) {
+  const x = Math.floor(bounds.x*target.width/source.width);
+  const y = Math.floor(bounds.y*target.height/source.height);
+  return {x,y,
+    width:Math.floor((bounds.x+bounds.width)*target.width/source.width)-x,
+    height:Math.floor((bounds.y+bounds.height)*target.height/source.height)-y
+  };
+}
+
 function masaluPersonalMenuImage_(template, entries) {
-  const width = 1250, height = 422;
+  const {width,height} = template;
+  const tall = height > 422;
   const pixels = Uint8Array.from(template.pixels);
   const glyphs = Object.fromEntries(Object.entries(template.glyphs).map(([label,value])=>[label,Utilities.base64Decode(value)]));
   const drawText = (label,x,y,color) => {
@@ -222,22 +238,22 @@ function masaluPersonalMenuImage_(template, entries) {
     for (let line=y;line<y+h;line++) pixels.fill(color,line*width+x,line*width+x+w);
   };
   for (const {groups,confirmed,bounds} of entries) {
-    const x = Math.floor(bounds.x/2);
-    const y = Math.floor(bounds.y/2);
-    rectangle(x+93,y+2,73,32,252);
-    drawText(confirmed?'已確認':'待回覆',x+94,y+2,confirmed?254:255);
-    const shown = groups.length > 3 ? groups.slice(0,2) : groups;
+    const {x,y} = bounds;
+    const statusX = x+bounds.width-75;
+    rectangle(statusX,y+5,73,32,252);
+    drawText(confirmed?'已確認':'待回覆',statusX+1,y+5,confirmed?254:255);
+    const shown = tall ? groups.slice(0,3) : groups.length > 3 ? groups.slice(0,2) : groups;
     const roomy = shown.length < 3 && groups.length === shown.length;
-    const tile = roomy ? 32 : 24;
-    const scale = roomy ? 1.75 : 1.375;
-    const labelWidth = roomy ? 62 : 51;
-    const capacity = Math.floor((165-labelWidth)/(tile+2));
+    const tile = tall ? 38 : roomy ? 32 : 24;
+    const scale = tall ? 2 : roomy ? 1.75 : 1.375;
+    const labelWidth = tall ? 67 : roomy ? 62 : 51;
+    const capacity = Math.floor((bounds.width-4-labelWidth)/(tile+2));
     shown.forEach(({location,people},index)=>{
-      const top = y+34+index*(tile+2);
-      rectangle(x+4,top,161,tile,252);
+      const top = y+(tall?80:34)+index*(tile+(tall?8:2));
+      rectangle(x+4,top,bounds.width-8,tile,252);
       const label = Array.from(location).slice(0,2);
       label.forEach((char,i)=>drawGlyph(char,x+5+i*Math.floor(16*scale),top,253,scale));
-      const limit = people.length > capacity ? capacity-1 : capacity;
+      const limit = people.length > capacity && !tall ? capacity-1 : capacity;
       const ordered = [...people].sort((a,b)=>Number(b.own)-Number(a.own));
       ordered.slice(0,limit).forEach((person,i)=>{
         const left = x+labelWidth+i*(tile+2);
@@ -245,9 +261,9 @@ function masaluPersonalMenuImage_(template, entries) {
         rectangle(left,top,tile,tile,person.own?254:fill);
         drawGlyph(person.mark,left+Math.floor((tile-16*scale)/2),top,person.own?252:ink,scale);
       });
-      if (people.length>limit) drawGlyph('+',x+labelWidth+limit*(tile+2),top,255,scale);
+      if (people.length>limit) drawGlyph('+',x+labelWidth+limit*(tile+2),top,255,tall?1:scale);
     });
-    if (groups.length>shown.length) drawGlyph('+',x+6,y+85,255,1);
+    if (groups.length>shown.length) drawGlyph('+',x+6,y+(tall?239:85),255,tall?1.5:1);
   }
   return masaluIndexedPng_(width,height,pixels,palette);
 }

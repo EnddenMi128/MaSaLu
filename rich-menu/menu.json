@@ -1,13 +1,13 @@
 {
-  "alias": "masalu-readable-2026-11-08",
-  "image": "calendar-2026-11-08-readable.jpg",
-  "personal": "personal-grid-readable-2026-11-08.json",
+  "alias": "masalu-tall-2026-11-08",
+  "image": "calendar-2026-11-08-tall.jpg",
+  "personal": "personal-grid-tall-2026-11-08.json",
   "start": "2026-11-08",
   "end": "2026-11-21",
   "menu": {
     "size": {
       "width": 2500,
-      "height": 843
+      "height": 1686
     },
     "selected": true,
     "name": "MaSaLu 2026-11-08 – 2026-11-21",
@@ -16,9 +16,9 @@
       {
         "bounds": {
           "x": 25,
-          "y": 264,
+          "y": 338,
           "width": 338,
-          "height": 221
+          "height": 563
         },
         "action": {
           "type": "uri",
@@ -29,9 +29,9 @@
       {
         "bounds": {
           "x": 377,
-          "y": 264,
+          "y": 338,
           "width": 338,
-          "height": 221
+          "height": 563
         },
         "action": {
           "type": "uri",
@@ -42,9 +42,9 @@
       {
         "bounds": {
           "x": 729,
-          "y": 264,
+          "y": 338,
           "width": 338,
-          "height": 221
+          "height": 563
         },
         "action": {
           "type": "uri",
@@ -55,9 +55,9 @@
       {
         "bounds": {
           "x": 1081,
-          "y": 264,
+          "y": 338,
           "width": 338,
-          "height": 221
+          "height": 563
         },
         "action": {
           "type": "uri",
@@ -68,9 +68,9 @@
       {
         "bounds": {
           "x": 1433,
-          "y": 264,
+          "y": 338,
           "width": 338,
-          "height": 221
+          "height": 563
         },
         "action": {
           "type": "uri",
@@ -81,9 +81,9 @@
       {
         "bounds": {
           "x": 1785,
-          "y": 264,
+          "y": 338,
           "width": 338,
-          "height": 221
+          "height": 563
         },
         "action": {
           "type": "uri",
@@ -94,9 +94,9 @@
       {
         "bounds": {
           "x": 2137,
-          "y": 264,
+          "y": 338,
           "width": 338,
-          "height": 221
+          "height": 563
         },
         "action": {
           "type": "uri",
@@ -107,9 +107,9 @@
       {
         "bounds": {
           "x": 25,
-          "y": 497,
+          "y": 919,
           "width": 338,
-          "height": 221
+          "height": 563
         },
         "action": {
           "type": "uri",
@@ -120,9 +120,9 @@
       {
         "bounds": {
           "x": 377,
-          "y": 497,
+          "y": 919,
           "width": 338,
-          "height": 221
+          "height": 563
         },
         "action": {
           "type": "uri",
@@ -133,9 +133,9 @@
       {
         "bounds": {
           "x": 729,
-          "y": 497,
+          "y": 919,
           "width": 338,
-          "height": 221
+          "height": 563
         },
         "action": {
           "type": "uri",
@@ -146,9 +146,9 @@
       {
         "bounds": {
           "x": 1081,
-          "y": 497,
+          "y": 919,
           "width": 338,
-          "height": 221
+          "height": 563
         },
         "action": {
           "type": "uri",
@@ -159,9 +159,9 @@
       {
         "bounds": {
           "x": 1433,
-          "y": 497,
+          "y": 919,
           "width": 338,
-          "height": 221
+          "height": 563
         },
         "action": {
           "type": "uri",
@@ -172,9 +172,9 @@
       {
         "bounds": {
           "x": 1785,
-          "y": 497,
+          "y": 919,
           "width": 338,
-          "height": 221
+          "height": 563
         },
         "action": {
           "type": "uri",
@@ -185,9 +185,9 @@
       {
         "bounds": {
           "x": 2137,
-          "y": 497,
+          "y": 919,
           "width": 338,
-          "height": 221
+          "height": 563
         },
         "action": {
           "type": "uri",
@@ -198,9 +198,9 @@
       {
         "bounds": {
           "x": 25,
-          "y": 733,
+          "y": 1500,
           "width": 2450,
-          "height": 91
+          "height": 160
         },
         "action": {
           "type": "uri",
