@@ -16,6 +16,7 @@ function masaluVacancySlots_(rows, approvedLeaves, offNames, today, timeZone) {
     const id = String(row[1] || '');
     if (date < today || !shift || offNames.has(shift) || !/^[a-f0-9-]{36}$/i.test(id)) continue;
     const note = String(row[16] || '');
+    if (note.includes(MASALU_REASSIGNED_NOTE)) continue;
     const leave = leaves.get(id);
     let marker;
     let closed;

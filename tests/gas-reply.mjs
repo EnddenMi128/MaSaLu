@@ -9,6 +9,7 @@ const calendarCode = await readFile(new URL('../GAS/CalendarApi.js', import.meta
 const swapCode = await readFile(new URL('../GAS/ShiftSwap.js', import.meta.url), 'utf8');
 const menuActionsCode = await readFile(new URL('../GAS/CalendarMenuActions.js', import.meta.url), 'utf8');
 const richMenuCode = await readFile(new URL('../GAS/CalendarRichMenu.js', import.meta.url), 'utf8');
+const vacancyCode = await readFile(new URL('../GAS/Vacancy.js', import.meta.url), 'utf8');
 const uuid = '11111111-1111-1111-1111-111111111111';
 const uid = 'U'+'a'.repeat(32);
 const managerUid = 'U'+'b'.repeat(32);
@@ -45,6 +46,7 @@ function harness({mockManagerNotice=true}={}) {
   vm.runInContext(swapCode,ctx);
   vm.runInContext(menuActionsCode,ctx);
   vm.runInContext(richMenuCode,ctx);
+  vm.runInContext(vacancyCode,ctx);
   const ledger={getDataRange:()=>({getValues:()=>[vm.runInContext('MASALU_SERIAL_HEADERS',ctx),...serialRows]}),
     appendRow:values=>serialRows.push(Array.from(values))};
   ctx.openBook_=()=>({getSheetByName:name=>name==='MaSaLu流水號'?ledger:null});
@@ -248,6 +250,7 @@ function editHarness(){
     getRange(row,col,num=1,width=1){
       return {
         getValues(){return records.slice(row-2,row-2+num).map(r=>r.slice(col-1,col-1+width));},
+        setValue(value){records[row-2][col-1]=value;},
         clearContent(){records[row-2].fill('');edits.push(row);},
       };
     }
@@ -283,6 +286,58 @@ test('saving unchanged pending roster does not generate a new notification',()=>
   assert.equal(result.retained,1);
   assert.equal(edits.length,0);
 });
+
+for (const previousStatus of ['不同意','已請假']) {
+  test(`calendar reassigns the same shift after ${previousStatus} with a new LINE card`,()=>{
+    const {h,data,records}=editHarness();
+    const newId='22222222-2222-2222-2222-222222222222';
+    const date='2026-11-05';
+    const request=[];
+    request[2]=uuid;
+    request[3]=1;
+    request[4]='A04';
+    request[6]=date;
+    request[7]='玉門';
+    const leaves=previousStatus==='已請假'?[{row:request,serial:'L-000001'}]:[];
+    records[0][7]=previousStatus;
+    records[0][8]='原回覆時間';
+    records[0][16]='原備註';
+    h.ctx.Utilities.getUuid=()=>newId;
+    assert.equal(h.ctx.masaluVacancySlots_(records,leaves,new Set(),date).length,1);
+
+    const payload={date,assignments:{ym:['A04']}};
+    const delta=h.ctx.masaluSaveDay_(data,payload,false);
+    assert.deepEqual(Array.from(delta.addedIds),[newId]);
+    assert.equal(delta.removed.length,0);
+    assert.equal(records[0][1],uuid);
+    assert.deepEqual(records[0].slice(7,9),[previousStatus,'原回覆時間']);
+    assert.equal(records[0][16],'原備註[月曆已重排]');
+    assert.equal(h.ctx.masaluVacancySlots_(records,leaves,new Set(),date).length,0);
+    if (previousStatus==='不同意') {
+      const oldAction={lineUid:managerUid,id:uuid,version:1,decision:'replace'};
+      assert.equal(h.ctx.masaluManagerDecisionLocked_(oldAction).code,'expired');
+    } else {
+      assert.equal(h.ctx.masaluLeaveReplacementLocked_(
+        {serial:leaves[0].serial,decision:'skip'},request,{},null
+      ).code,'expired');
+    }
+    assert.equal(h.ctx.masaluBootstrap_(data).schedules.length,1);
+    assert.equal(h.ctx.masaluConfirmedDayRows_(records).length,0);
+    const sent=[];
+    h.ctx.sendShiftRow_=(_row, _force, id)=>{
+      sent.push(id);
+      return {code:'sent'};
+    };
+    assert.equal(h.ctx.masaluNotifyAddedForDate_(delta).sent,1);
+    assert.deepEqual(sent,[newId]);
+
+    records[1][7]='同意';
+    assert.deepEqual(Array.from(h.ctx.masaluConfirmedDayRows_(records),row=>row[1]),[newId]);
+    const again=h.ctx.masaluSaveDay_(data,payload,false);
+    assert.equal(again.changed,false);
+    assert.equal(again.addedIds.length,0);
+  });
+}
 
 test('removing just one staff member reports a targeted cancellation',()=>{
   const {h,data,records}=editHarness();

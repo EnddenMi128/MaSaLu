@@ -194,6 +194,8 @@ function createTemporaryShiftFromSelected() {
   show_('已新增第 ' + targetRow + ' 列臨時排班（尚未發送）。\n請檢查新列，再按「發送選取排班」或「發送已勾選排班」。\n這個 UID 不會進入「員工名單」。');
 }
 
+const MASALU_REASSIGNED_NOTE = '[月曆已重排]';
+
 function sendShiftRow_(rowNumber, force, shiftId, declinedVersion) {
   const lock = LockService.getScriptLock();
   if (!lock.tryLock(20000)) return {code: 'failed', message: '系統忙碌，請稍後再試。'};
@@ -209,6 +211,9 @@ function sendShiftRow_(rowNumber, force, shiftId, declinedVersion) {
     }
     const declinedResend = force && current[7] === '不同意';
     const oldNote = String(current[16] || '');
+    if (declinedResend && oldNote.includes(MASALU_REASSIGNED_NOTE)) {
+      return {code:'expired',message:'這筆排班已由月曆重新安排，請使用最新排班。'};
+    }
     if (declinedResend) {
       const sourceMarker = '替補來源：'+String(current[1] || '');
       const hasReplacement = /\[替補ID:[a-f0-9-]{36}\]/i.test(oldNote) ||
@@ -415,11 +420,11 @@ function masaluNotifyAddedForDate_(delta) {
     const reply = String(row[7] || '');
     // Do not duplicate delivered or in-flight messages, or alter replied rows.
     if (!['', '未發送', '發送失敗'].includes(status) || ['同意', '不同意','已請假'].includes(reply)) return;
-    candidates.push(index + 2);
+    candidates.push({rowNumber:index+2,id:String(row[1])});
   });
   const summary = {sent:0,failed:0,skipped:0,details:[]};
-  candidates.slice(0, SHIFT_APP.BATCH_LIMIT).forEach(rowNumber => {
-    const outcome = sendShiftRow_(rowNumber, false);
+  candidates.slice(0, SHIFT_APP.BATCH_LIMIT).forEach(({rowNumber,id}) => {
+    const outcome = sendShiftRow_(rowNumber, false, id);
     if (outcome.code === 'sent') summary.sent++;
     else if (outcome.code === 'failed') summary.failed++;
     else summary.skipped++;
@@ -1011,6 +1016,9 @@ function masaluLeaveReplacementLocked_(input, request, roster, receipt) {
       !['同意','已請假'].includes(source[7])) {
     return reply('expired','原排班已變更，請查看最新月曆。');
   }
+  if (String(source[16]||'').includes(MASALU_REASSIGNED_NOTE)) {
+    return reply('expired','這筆排班已由月曆重新安排，請查看最新月曆。');
+  }
   const dayRows = sheet.getRange(2,1,sheet.getLastRow()-1,SHIFT_APP.SHIFT_HEADERS.length).getValues()
     .filter(row=>masaluDate_(row[3])===date && row[6]);
   const marker = '請假替補來源：'+serial;
@@ -1157,7 +1165,9 @@ function masaluConfirmedDayRows_(rows) {
   const active = [];
   for (const row of rows) {
     const status = String(row[7] || '').trim();
-    if (status === '已請假' || (status === '不同意' && String(row[16] || '').includes('[管理已略過]'))) continue;
+    const note = String(row[16] || '');
+    if (status === '已請假' || (status === '不同意' &&
+        (note.includes('[管理已略過]') || note.includes(MASALU_REASSIGNED_NOTE)))) continue;
     if (status !== '同意') return [];
     active.push(row);
   }
@@ -1235,6 +1245,9 @@ function masaluManagerDecisionLocked_(input) {
     const row=sheet.getRange(number,1,1,SHIFT_APP.SHIFT_HEADERS.length).getValues()[0];
     if (Number(row[11])!==version) return {ok:true,code:'expired',message:'通知已失效。'};
     if (String(row[7]||'')!=='不同意') return {ok:true,code:'expired',message:'這筆排班並非「不同意」狀態。'};
+    if (String(row[16]||'').includes(MASALU_REASSIGNED_NOTE)) {
+      return {ok:true,code:'expired',message:'這筆排班已由月曆重新安排，請查看最新月曆。'};
+    }
     if (decision==='resend') return {ok:true,code:'resend'};
     const date=masaluDate_(row[3]);
     if (decision==='cancel') return {ok:true,code:'cancelled',message:'已取消選擇替補。'};

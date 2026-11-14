@@ -159,14 +159,17 @@ function masaluSaveDay_(data,payload,clear) {
       wanted.add(JSON.stringify([staffId,shift.name]));
     });
   });
-  const removals=[],existing=new Set(),removed=[];
+  const removals=[],existing=new Set(),removed=[],reassigned=[];
   data.schedule.rows.forEach((r,i)=>{
     if(masaluDate_(r[3],data.timeZone)!==date) return;
     const staffId=String(r[2]||'').trim() || (r[12]?'temporary:'+String(r[1]||i):'');
     const pair=JSON.stringify([staffId,String(r[6]||'').trim()]);
     if(!clear && ['不同意','已請假'].includes(String(r[7]||'').trim())) {
-      if(wanted.has(pair)) throw new Error('此員工已拒絕排班或已請假，請另外安排替補人員');
-      return; // Keep the declined row and its history; it no longer appears on the calendar.
+      const note=String(r[16]||'');
+      if(wanted.has(pair) && !note.includes(MASALU_REASSIGNED_NOTE)) {
+        reassigned.push({row:i+2,note});
+      }
+      return;
     }
     if(wanted.has(pair)) {existing.add(pair);return;}
     removals.push(i+2);
@@ -185,6 +188,8 @@ function masaluSaveDay_(data,payload,clear) {
   // Only changed rows are replaced. Unchanged replies (including pending) are never resent.
   // Clearing a date is deliberate and removes even previously answered rows from the active sheet.
   additions.forEach(row=>data.schedule.sheet.appendRow(row));
+  // Keep the old response and close its vacancy when the same assignment is offered again.
+  reassigned.forEach(({row,note})=>data.schedule.sheet.getRange(row,17).setValue(note+MASALU_REASSIGNED_NOTE));
   removals.forEach(row=>data.schedule.sheet.getRange(row,1,1,SHIFT_APP.SHIFT_HEADERS.length).clearContent());
   safeLog_(clear?'月曆清空':'月曆儲存','', '', '成功',date+' 新增 '+additions.length+'，移除 '+removals.length,'');
   removed.forEach(r=>safeLog_('月曆取消排班',r.id,r.staffId,'成功',
