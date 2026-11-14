@@ -10,7 +10,7 @@ function masaluCalendarActionPage_(entries, value, action, title, empty) {
   const items = selected.map(entry=>entry.button).filter(Boolean);
   if (page>0) items.push(masaluCalendarActionButton_('上一頁',action,page-1));
   if ((page+1)*limit<entries.length) items.push(masaluCalendarActionButton_('下一頁',action,page+1));
-  return {ok:true,code:action,message:selected.length?title+'\n'+selected.map(entry=>entry.text).join('\n'):empty,
+  return {ok:true,code:action,message:selected.length?title+'\n\n'+selected.map(entry=>entry.text).join('\n'):empty,
     ...(items.length?{quickReply:{items}}:{})};
 }
 
@@ -32,7 +32,7 @@ function masaluCalendarMenuAction_(input) {
       return reply('expired','這則回覆已失效，請重新開啟聯絡團員。');
     if (choice==='contact_reply') {
       const prefix = '團員回覆 '+value+' ';
-      return reply('contact_reply','回覆給 '+(roster[target].name || target)+'。請輸入訊息後送出。\n也可直接輸入「'+prefix+'你的訊息」。',[
+      return reply('contact_reply','回覆給 '+(roster[target].name || target),[
         masaluCalendarActionButton_('輸入回覆','keyboard','',{inputOption:'openKeyboard',fillInText:prefix})
       ]);
     }
@@ -87,7 +87,7 @@ function masaluCalendarMenuAction_(input) {
       .filter(row=>(!row.status || row.status==='待回覆') && (manager || row.staffId===employeeId))
       .map(row=>({text:[row.date,row.shift,manager?(roster[row.staffId]?.name || row.name || row.staffId):'']
         .filter(Boolean).join('｜')}));
-    return masaluCalendarActionPage_(entries,value,'replies','回覆確認｜尚未回覆','目前沒有尚未回覆的排班。');
+    return masaluCalendarActionPage_(entries,value,'replies','尚未回覆','排班皆已回覆');
   }
 
   const ownConfirmed = new Set(upcoming.filter(row=>row.staffId===employeeId && row.status==='同意')
@@ -99,12 +99,12 @@ function masaluCalendarMenuAction_(input) {
   if (choice==='contact') {
     const entries = contacts.map(id=>({text:roster[id].name || id,
       button:masaluCalendarActionButton_(roster[id].name || id,'contact_target',id)}));
-    return masaluCalendarActionPage_(entries,value,'contact','聯絡團員｜請選擇收件人','目前沒有可聯絡的團員。');
+    return masaluCalendarActionPage_(entries,value,'contact','選擇收件人','目前沒有可聯絡的團員。');
   }
   if (!contacts.includes(value)) return reply('unavailable','目前無法聯絡這位團員。請重新選擇。');
   if (choice==='contact_target') {
     const prefix = '團員留言 '+value+' ';
-    return reply('contact','傳給 '+(roster[value].name || value)+'\n點「輸入訊息」，也可手動輸入「'+prefix+'你的訊息」。',[
+    return reply('contact','傳給 '+(roster[value].name || value),[
       masaluCalendarActionButton_('輸入訊息','keyboard','',{inputOption:'openKeyboard',fillInText:prefix})
     ]);
   }

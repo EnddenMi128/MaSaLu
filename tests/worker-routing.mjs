@@ -341,7 +341,7 @@ test('all rich menu shortcuts and new reply buttons reach their respective route
     const payload=JSON.parse(init.body);
     if (url===env.GAS_WEB_APP_URL) {
       calls.push(payload);
-      return Response.json({ok:true,code:'done',message:'操作結果'});
+      return Response.json({ok:true,code:'done',message:payload.kind==='vacancy' && payload.choice==='list'?'現已滿班':'操作結果'});
     }
     assert.equal(url,'https://api.line.me/v2/bot/message/reply');
     receipts.push(payload);
@@ -358,5 +358,6 @@ test('all rich menu shortcuts and new reply buttons reach their respective route
       ['calendar_menu_action','contact_reply'],['vacancy','reject'],['calendar_menu_action','reply_send']
     ]);
     assert.equal(receipts.length,routes.length);
+    assert.deepEqual(receipts[3].messages,[{type:'text',text:'現已滿班'}]);
   } finally {globalThis.fetch=old;}
 });

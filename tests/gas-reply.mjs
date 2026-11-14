@@ -126,7 +126,7 @@ test('disagree persists original row with different status, only owner may respo
   assert.equal(result.code,'confirmed');
   assert.equal(h.row[7],'不同意');
   assert.equal(result.serial,'D-000001');
-  assert.match(result.message,/流水號：D-000001/);
+  assert.equal(result.message,'已回覆不同意\n2026-11-05 ・ 玉門\nD-000001');
   assert.equal(h.notices.length,1);
   assert.equal(h.notices[0].status,'不同意');
 });
@@ -374,10 +374,12 @@ test('clear notification broadcasts to bound staff; non-clear only notifies remo
   assert.equal(all.sent,2);
   assert.equal(all.skipped,1);
   assert.equal(deliveries.length,2);
+  assert.ok(deliveries.every(({messages})=>messages[0].text==='當日班次已取消\n2026-11-05'));
   deliveries.length=0;
   const targeted=h.ctx.masaluNotifyCancellations_({...delta,clear:false});
   assert.equal(targeted.sent,1);
   assert.equal(deliveries[0].to,uid2);
+  assert.equal(deliveries[0].messages[0].text,'班次已取消\n2026-11-05 ・ 玉門');
 });
 
 function replacementHarness(count=3) {
@@ -600,12 +602,12 @@ test('leave supports type and optional note, validates owner and version, and de
   assert.equal(note.quickReply.items[0].action.fillInText,'排班留言 ABCDEF01 ');
   const submitted=run({text:'排班留言 ABCDEF01 =not a formula'});
   assert.equal(submitted.code,'request_sent');
-  assert.match(submitted.message,/流水號：L-000001/);
+  assert.equal(submitted.message,'請假申請已送出\n2026-11-05 ・ 玉門\nL-000001');
   assert.equal(h.requests[0][9],'病假');
   assert.equal(h.requests[0][10],"'=not a formula");
   assert.equal(h.requests[0][11],'待處理');
   const card=h.pushes[0].messages[0];
-  assert.match(card.contents.body.contents[0].text,/員工甲[\s\S]*2026-11-05[\s\S]*=not a formula[\s\S]*是否核准/);
+  assert.equal(card.contents.body.contents[0].text,'請假申請\n2026-11-05 ・ 玉門\n員工甲 ・ 病假\n留言｜=not a formula\nL-000001');
   assert.deepEqual(card.contents.footer.contents.map(button=>button.action.label),['核准','不核准']);
   const repeat=run({choice:'leave_personal_send'});
   assert.equal(repeat.code,'request_already');
@@ -628,8 +630,11 @@ test('managers can review a legacy leave request once and retry an undelivered r
   assert.equal(review('reject').code,'already');
   assert.equal(review().quickReply.items[0].action.label,'重試通知');
   h.fail.delete(uid);
-  assert.equal(review('approve').code,'leave_reviewed');
-  assert.match(h.pushes.at(-1).messages[0].text,/L-000001[\s\S]*已核准/);
+  const approved=review('approve');
+  assert.equal(approved.code,'leave_reviewed');
+  const receipt='請假已核准\n2026-11-05 ・ 玉門\nL-000001';
+  assert.equal(approved.message,receipt);
+  assert.equal(h.pushes.at(-1).messages[0].text,receipt);
   const deliveries=h.pushes.length;
   assert.equal(review('approve').code,'leave_reviewed');
   assert.equal(h.pushes.length,deliveries);
@@ -708,13 +713,13 @@ test('swap dates list only eligible assignments, paginate and recover from obsol
   assert.deepEqual(Array.from(second.quickReply.items,item=>item.action.label),[
     '2026-11-15','2026-11-16','2026-11-17','2026-11-18','2026-11-19','上一頁']);
   const stale=choose({choice:'swap_date',date:'2026-12-01'});
-  assert.match(stale.message,/2026-12-01.*沒有可調換/);
+  assert.match(stale.message,/2026-12-01 無可調班對象/);
   assert.equal(stale.quickReply.items[0].action.label,'2026-11-05');
   assert.match(stale.quickReply.items[0].action.data,/choice=swap_date&date=2026-11-05/);
   rows=[h.row];
   const empty=choose({choice:'swap'});
   assert.equal(empty.code,'swap_no_candidates');
-  assert.match(empty.message,/已綁定 LINE/);
+  assert.equal(empty.message,'目前沒有可調班的班次');
   assert.deepEqual(Array.from(empty.quickReply.items,item=>item.action.label),['重新查詢','聯絡團長']);
 });
 
@@ -750,15 +755,15 @@ for (const decision of ['agree','decline']) test('swap '+decision+' only registe
   const date='2026-11-06';
   const shifts=choose({choice:'swap_date',date});
   assert.equal(shifts.quickReply.items[0].action.label,'田園 ・ 18:00–20:00');
-  assert.match(shifts.message,/原本的班｜2026-11-05 ・ 玉門[\s\S]*想換的日期｜2026-11-06/);
+  assert.match(shifts.message,/原本的班｜2026-11-05 ・ 玉門[\s\S]*請選擇班別\n2026-11-06/);
   const people=choose({choice:'swap_shift',date,target:targetId});
   assert.equal(people.quickReply.items[0].action.label,'對方');
-  assert.match(people.message,/原本的班｜2026-11-05 ・ 玉門[\s\S]*想換的班｜2026-11-06 ・ 田園/);
+  assert.match(people.message,/原本的班｜2026-11-05 ・ 玉門[\s\S]*請選擇調班對象\n2026-11-06 ・ 田園/);
   const submit={choice:'swap_target',date,target:targetId,targetVersion:2};
   assert.equal(choose({...submit,targetVersion:1}).code,'swap_expired');
   const invited=choose(submit);
   assert.equal(invited.code,'swap_invited');
-  assert.match(invited.message,/原本的班｜2026-11-05 ・ 玉門[\s\S]*想換的班｜2026-11-06 ・ 田園[\s\S]*調班對象｜對方/);
+  assert.match(invited.message,/原本的班｜2026-11-05 ・ 玉門[\s\S]*調班邀請已送出\n2026-11-06 ・ 田園 ・ 18:00–20:00\n對方$/);
   assert.match(invited.message,/18:00–20:00/);
   assert.equal(h.requests.length,0);
   assert.equal(h.pushes[0].to,targetUid);
@@ -894,4 +899,20 @@ test('LINE rejects the rich receipt, so GAS sends the same serial and buttons as
   assert.equal(messages[0].type,'flex');
   assert.match(messages[1].text,/\nA-000001$/);
   assert.deepEqual(messages[1].quickReply.items.map(item=>item.action.label),['聯絡團長','調班請求','我要請假']);
+});
+
+test('vacancy lists return the exact full-roster reply for managers and members, and still list open slots',()=>{
+  const {ctx,row}=harness();
+  ctx.openBook_=()=>({getSpreadsheetTimeZone:()=> 'Asia/Taipei',getSheetByName:()=>null});
+  ctx.Utilities.formatDate=()=> '2026-11-05';
+  const list=lineUid=>ctx.masaluVacancy_({lineUid,choice:'list'});
+  assert.equal(list(managerUid).message,'現已滿班');
+  assert.equal(list(uid).message,'現已滿班');
+  row[7]='不同意';
+  ctx.employeeIndex_=()=>({A04:{name:'員工甲',uid},A01:{name:'團長',uid:managerUid},A05:{name:'員工乙',uid:'U'+'c'.repeat(32)}});
+  assert.equal(list(managerUid).message,'缺班查詢\n\n2026-11-05 玉門｜缺 1 人');
+  assert.equal(list(uid).message,'現已滿班');
+  const eligible=list('U'+'c'.repeat(32));
+  assert.equal(eligible.message,'缺班查詢\n\n2026-11-05 玉門｜缺 1 人');
+  assert.match(eligible.quickReply.items[0].action.data,/^action=vacancy&choice=apply&/);
 });

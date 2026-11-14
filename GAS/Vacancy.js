@@ -52,7 +52,7 @@ function masaluVacancy_(input) {
   if (!result.shiftId) return result;
   const sent = sendShiftRow_(null,false,result.shiftId);
   if (['sent','skipped'].includes(sent.code)) {
-    return {ok:true,code:'approved',message:'補班已核准，已發送排班確認通知。'};
+    return {ok:true,code:'approved',message:'補班已核准，通知已送出'};
   }
   return {ok:true,code:'approved_pending',message:'補班已登記，排班通知尚未送出。',
     quickReply:{items:[masaluVacancyButton_('重試發送','approve',result.shiftId)]}};
@@ -111,8 +111,7 @@ function masaluVacancyLocked_({lineUid,choice,id}) {
     const choices = [
       ...pending.map(row=>({text:masaluDate_(row[5],timeZone)+' '+row[6]+'｜'+(roster[row[2]]?.name || row[2]),
         button:masaluVacancyButton_('審核 '+row[6]+' '+(roster[row[2]]?.name || row[2]),'review',row[0])})),
-      ...[...groups].map(([key,{slot,open,waiting}])=>({text:key+'｜缺 '+open+' 人'+
-        (waiting?'｜'+waiting+' 人等替補確認':''),
+      ...[...groups].map(([key,{slot,open,waiting}])=>({text:key+'｜'+[open?'缺 '+open+' 人':'',waiting?'待確認 '+waiting+' 人':''].filter(Boolean).join(' ・ '),
         button:manager?null:masaluVacancyButton_('申請 '+label(slot),'apply',slot.key)}))
     ];
     const page = Math.min(Math.max(0,Number(id)||0),Math.max(0,Math.ceil(choices.length/10)-1));
@@ -120,8 +119,8 @@ function masaluVacancyLocked_({lineUid,choice,id}) {
     const buttons = shown.map(entry=>entry.button).filter(Boolean);
     if (page>0) buttons.push(masaluVacancyButton_('上一頁','list',page-1));
     if ((page+1)*10<choices.length) buttons.push(masaluVacancyButton_('下一頁','list',page+1));
-    return reply('vacancies',shown.length?'缺班查詢\n'+shown.map(entry=>entry.text).join('\n'):
-      manager?'目前沒有缺班或待審核的補班申請。':'目前沒有你整天未排班且可以申請的空缺。',buttons);
+    return reply('vacancies',shown.length?'缺班查詢\n\n'+shown.map(entry=>entry.text).join('\n'):
+      '現已滿班',buttons);
   }
   if (choice==='apply') {
     const slot = slots.find(item=>item.key===id);
@@ -139,9 +138,9 @@ function masaluVacancyLocked_({lineUid,choice,id}) {
       quickReply:{items:[review]}};
     const recipients = [...new Set(managers.map(key=>roster[key]?.uid).filter(validLineUid_))];
     const delivered = recipients.map(uid=>masaluPushWorkflowMessage_(uid,notice,'vacancy-review:'+requestId+':'+uid));
-    const message = '已登記 '+slot.date+' '+slot.shift+' 的補班申請。';
-    return delivered.some(Boolean) ? reply('submitted',message+'請等管理員審核。') :
-      reply('submitted_notice_pending',message+'管理員可從缺班查詢審核，LINE 通知尚未送達。',
+    const message = '補班申請已登記\n'+slot.date+' ・ '+slot.shift;
+    return delivered.some(Boolean) ? reply('submitted',message) :
+      reply('submitted_notice_pending',message+'\n通知未送達',
         [masaluVacancyButton_('重試通知','apply',id)]);
   }
   if (!manager) return reply('unauthorized','只有管理員可以審核補班。');
@@ -175,8 +174,8 @@ function masaluVacancyLocked_({lineUid,choice,id}) {
       applications.getRange(index+2,8).setValue(new Date());
       SpreadsheetApp.flush();
     }
-    return sent ? reply('rejected','已拒絕補班申請，已通知申請人。') :
-      reply('rejected_notice_pending','已拒絕補班申請，申請人通知尚未送達。',[
+    return sent ? reply('rejected','補班未核准') :
+      reply('rejected_notice_pending','補班未核准，通知未送達',[
         masaluVacancyButton_('重試通知','reject',id)
       ]);
   }
