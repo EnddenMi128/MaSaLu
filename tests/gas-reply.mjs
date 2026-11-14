@@ -7,6 +7,7 @@ import {createHash,createHmac} from 'node:crypto';
 const code = await readFile(new URL('../GAS/程式碼.js', import.meta.url), 'utf8');
 const calendarCode = await readFile(new URL('../GAS/CalendarApi.js', import.meta.url), 'utf8');
 const swapCode = await readFile(new URL('../GAS/ShiftSwap.js', import.meta.url), 'utf8');
+const menuActionsCode = await readFile(new URL('../GAS/CalendarMenuActions.js', import.meta.url), 'utf8');
 const uuid = '11111111-1111-1111-1111-111111111111';
 const uid = 'U'+'a'.repeat(32);
 const managerUid = 'U'+'b'.repeat(32);
@@ -41,6 +42,7 @@ function harness({mockManagerNotice=true}={}) {
   vm.runInContext(code,ctx);
   vm.runInContext(calendarCode,ctx);
   vm.runInContext(swapCode,ctx);
+  vm.runInContext(menuActionsCode,ctx);
   const ledger={getDataRange:()=>({getValues:()=>[vm.runInContext('MASALU_SERIAL_HEADERS',ctx),...serialRows]}),
     appendRow:values=>serialRows.push(Array.from(values))};
   ctx.openBook_=()=>({getSheetByName:name=>name==='MaSaLu流水號'?ledger:null});
@@ -477,6 +479,39 @@ test('the three approved-card actions deliver their prompts to the employee thro
   const fallback=run('contact','contact-event');
   assert.equal(fallback.code,'contact_open');
   assert.equal(fallback.quickReply.items[1].action.label,'結束對話');
+});
+
+test('personal leave picker only offers the viewer’s upcoming confirmed work and opens leave types',()=>{
+  const h=followupHarness();
+  h.ctx.openBook_=()=>({getSpreadsheetTimeZone:()=> 'Asia/Taipei',getSheetByName:()=>null});
+  h.ctx.Utilities.formatDate=()=> '2026-11-05';
+  const pick=()=>h.ctx.masaluCalendarMenuAction_({lineUid:uid,choice:'leave_pick',value:0});
+  const item=pick().quickReply.items[0].action;
+  assert.equal(item.label,'2026-11-05｜玉門');
+  assert.match(item.data,/choice=leave$/);
+  assert.equal(h.ctx.handleShiftFollowup_({...h.input,choice:'leave'}).code,'leave_types');
+  h.row[7]='待回覆';
+  assert.match(pick().message,/目前沒有可請假/);
+});
+
+test('received member message provides a private reply button and routes the reply back',()=>{
+  const h=followupHarness();
+  h.ctx.openBook_=()=>({getSpreadsheetTimeZone:()=> 'Asia/Taipei'});
+  h.ctx.Utilities.formatDate=()=> '2026-11-05';
+  h.ctx.masaluLineRetryKey_=()=>uuid;
+  const run=fields=>h.ctx.masaluCalendarMenuAction_(fields);
+  assert.equal(run({lineUid:managerUid,choice:'send',value:'A04',text:'集合時間？',eventId:'first'}).code,'sent');
+  const received=h.pushes[0];
+  assert.equal(received.to,uid);
+  const button=received.messages[0].quickReply.items[0].action;
+  assert.equal(button.label,'回覆');
+  const value=new URLSearchParams(button.data).get('value');
+  assert.equal(run({lineUid:managerUid,choice:'contact_reply',value}).code,'expired');
+  const prompt=run({lineUid:uid,choice:'contact_reply',value});
+  assert.equal(prompt.quickReply.items[0].action.fillInText,'團員回覆 '+uuid+' ');
+  assert.equal(run({lineUid:uid,choice:'reply_send',value,text:'下午三點',eventId:'second'}).code,'sent');
+  assert.equal(h.pushes[1].to,managerUid);
+  assert.match(h.pushes[1].messages[0].text,/下午三點/);
 });
 
 test('leave supports type and optional note, validates owner and version, and deduplicates',()=>{

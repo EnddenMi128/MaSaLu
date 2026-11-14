@@ -106,7 +106,8 @@ function masaluRefreshOwnCalendarMenu_(uid) {
     ].join('\n'));
     const details = list.join('\n\n');
     const text = details.length > 1500 ? details.slice(0,1500)+'…\n開啟排班月曆查看完整名單。' : details;
-    return {ok:true,code:status,message:list.length ? ['個人班表',text,'',messages[status]].join('\n') : messages[status]};
+    return {ok:true,code:status,message:list.length ? ['個人班表',text,'',messages[status]].join('\n') : messages[status],
+      ...(list.length?{quickReply:{items:[masaluCalendarActionButton_('我要請假','leave_pick',0)]}}:{})};
   } finally {
     lock.releaseLock();
   }

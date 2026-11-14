@@ -24,6 +24,20 @@ function masaluCalendarMenuAction_(input) {
   const manager = ['A01','A02','A03'].includes(employeeId);
   const book = openBook_();
   const timeZone = book.getSpreadsheetTimeZone();
+  if (choice==='contact_reply' || choice==='reply_send') {
+    const cache = CacheService.getScriptCache();
+    const thread = JSON.parse(cache.get('masalu:member-reply:'+lineUid+':'+value) || 'null');
+    const target = thread?.id;
+    if (!target || !validLineUid_(thread.uid) || roster[target]?.uid!==thread.uid || thread.uid===lineUid)
+      return reply('expired','這則回覆已失效，請重新開啟聯絡團員。');
+    if (choice==='contact_reply') {
+      const prefix = '團員回覆 '+value+' ';
+      return reply('contact_reply','回覆給 '+(roster[target].name || target)+'。請輸入訊息後送出。\n也可直接輸入「'+prefix+'你的訊息」。',[
+        masaluCalendarActionButton_('輸入回覆','keyboard','',{inputOption:'openKeyboard',fillInText:prefix})
+      ]);
+    }
+    return masaluSendMemberMessage_(employeeId,target,roster,text,eventId,'回覆團員');
+  }
   if (choice==='leave' || choice==='leave_detail') {
     const name = 'MaSaLu排班請求';
     const requests = book.getSheetByName(name) && book.getSheetByName(MASALU_SERIAL_SHEET)
@@ -46,6 +60,23 @@ function masaluCalendarMenuAction_(input) {
   const today = Utilities.formatDate(new Date(),timeZone,'yyyy-MM-dd');
   const sheet = shiftSheet_();
   const rows = sheet.getLastRow()<2 ? [] : sheet.getRange(2,1,sheet.getLastRow()-1,SHIFT_APP.SHIFT_HEADERS.length).getValues();
+  if (choice==='leave_pick') {
+    const offNames = new Set(['休假']);
+    const config = book.getSheetByName(MASALU.SHIFTS);
+    if (config) for (const row of config.getDataRange().getValues().slice(1)) {
+      if (String(row[2]).toLowerCase()==='true') offNames.add(String(row[1]).trim());
+    }
+    const entries = rows.filter(row=>String(row[2]||'').trim()===employeeId && row[7]==='同意' &&
+      /^[a-f0-9-]{36}$/i.test(String(row[1])) && Number.isSafeInteger(Number(row[11])) &&
+      Number(row[11])>0 && row[6] && !offNames.has(String(row[6]).trim()) &&
+      masaluDate_(row[3],timeZone)>=today).map(row=>{
+        const date=masaluDate_(row[3],timeZone);
+        const label=date+'｜'+row[6];
+        const action=masaluFollowupAction_({id:row[1],version:Number(row[11])},'leave',label.slice(0,20));
+        return {date,text:label,button:{type:'action',action}};
+      }).sort((a,b)=>a.date.localeCompare(b.date));
+    return masaluCalendarActionPage_(entries,value,'leave_pick','請選擇要請假的日期與班別','目前沒有可請假的已確認班次。');
+  }
   const upcoming = rows.map(row=>({date:masaluDate_(row[3],timeZone),shift:String(row[6] || '').trim(),
     staffId:String(row[2] || '').trim(),status:String(row[7] || '').trim(),name:String(row[12] || '')}))
     .filter(row=>row.date>=today && row.shift && row.shift!=='休假' && (row.staffId || row.name))
@@ -77,9 +108,22 @@ function masaluCalendarMenuAction_(input) {
       masaluCalendarActionButton_('輸入訊息','keyboard','',{inputOption:'openKeyboard',fillInText:prefix})
     ]);
   }
-  if (choice!=='send' || !text || text.length>1500 || !eventId) return reply('invalid','請輸入 1 至 1500 字的訊息。');
-  const sent = masaluPushWorkflowMessage_(roster[value].uid,
-    {type:'text',text:'💬 '+(roster[employeeId].name || employeeId)+'｜聯絡團員\n\n'+text},'menu-contact:'+eventId);
-  return sent ? reply('sent','訊息已傳給 '+(roster[value].name || value)+'。') :
-    reply('failed','訊息尚未送達，請稍後重試。');
+  if (choice!=='send') return reply('invalid','請重新開啟聯絡團員。');
+  return masaluSendMemberMessage_(employeeId,value,roster,text,eventId,'聯絡團員');
+}
+
+function masaluSendMemberMessage_(senderId,targetId,roster,text,eventId,title) {
+  if (!text || text.length>1500 || !eventId)
+    return {ok:true,code:'invalid',message:'請輸入 1 至 1500 字的訊息。'};
+  const target = roster[targetId];
+  const token = masaluLineRetryKey_('member-reply:'+eventId+':'+target.uid);
+  CacheService.getScriptCache().put('masalu:member-reply:'+target.uid+':'+token,
+    JSON.stringify({id:senderId,uid:roster[senderId].uid}),21600);
+  const sent = masaluPushWorkflowMessage_(target.uid,{
+    type:'text',text:'💬 '+(roster[senderId].name || senderId)+'｜'+title+'\n\n'+text,
+    quickReply:{items:[masaluCalendarActionButton_('回覆','contact_reply',token,
+      {inputOption:'openKeyboard',fillInText:'團員回覆 '+token+' '})]}
+  },'menu-contact:'+eventId);
+  return {ok:true,code:sent?'sent':'failed',message:sent
+    ? '訊息已傳給 '+(target.name || targetId)+'。' : '訊息尚未送達，請稍後重試。'};
 }

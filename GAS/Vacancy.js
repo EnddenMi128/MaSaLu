@@ -161,14 +161,25 @@ function masaluVacancyLocked_({lineUid,choice,id}) {
     }
     return reply('unavailable','補班紀錄已變更，請重新查詢。');
   }
-  if (request[4]!=='待審核') return reply('already',details+'｜'+request[4]);
-  if (choice==='reject') {
-    applications.getRange(index+2,5).setValue('不核准');
-    SpreadsheetApp.flush();
-    if (validLineUid_(roster[staffId]?.uid)) masaluPushWorkflowMessage_(roster[staffId].uid,
+  if (choice==='reject' && ['待審核','不核准'].includes(request[4])) {
+    if (request[7]) return reply('already',details+'｜不核准，已通知申請人。');
+    if (request[4]==='待審核') {
+      applications.getRange(index+2,5).setValue('不核准');
+      SpreadsheetApp.flush();
+    }
+    const sent = validLineUid_(roster[staffId]?.uid) && masaluPushWorkflowMessage_(roster[staffId].uid,
       {type:'text',text:'補班申請未核准\n'+details},'vacancy-rejected:'+id);
-    return reply('rejected','已拒絕補班申請。');
+    if (sent) {
+      applications.getRange(1,8).setValue('拒絕通知時間');
+      applications.getRange(index+2,8).setValue(new Date());
+      SpreadsheetApp.flush();
+    }
+    return sent ? reply('rejected','已拒絕補班申請，已通知申請人。') :
+      reply('rejected_notice_pending','已拒絕補班申請，申請人通知尚未送達。',[
+        masaluVacancyButton_('重試通知','reject',id)
+      ]);
   }
+  if (request[4]!=='待審核') return reply('already',details+'｜'+request[4]);
   if (!slot || !eligible(slot,staffId) || !validLineUid_(roster[staffId]?.uid)) {
     return reply('unavailable',details+'｜空缺已變更或申請人當天已有排班。');
   }

@@ -193,10 +193,13 @@ async function handleEvent(event, env, ctx) {
     }
     const menuChoice = {'聯絡團員':'contact','請假審核':'leave','回覆確認':'replies'}[text];
     const contact = /^團員留言\s+(\S{1,60})\s+([\s\S]{1,1500})$/.exec(text);
-    if (typeof menuChoice === 'string' || contact) {
+    const contactReply = /^團員回覆\s+([a-f0-9-]{36})\s+([\s\S]{1,1500})$/i.exec(text);
+    if (typeof menuChoice === 'string' || contact || contactReply) {
       return handleFollowupEvent(event,{kind:'calendar_menu_action',lineUid,eventId:eventId || event.message.id || '',
-        choice:contact?'send':menuChoice,value:contact?.[1],text:contact?.[2]},env);
+        choice:contactReply?'reply_send':contact?'send':menuChoice,value:(contactReply||contact)?.[1],text:(contactReply||contact)?.[2]},env);
     }
+    if (/^團員(?:留言|回覆)(?:\s|$)/.test(text))
+      return replyLineSafe(event.replyToken,'請從對話按鈕重新開啟輸入欄，接著輸入 1 至 1500 字。',env);
     if (text === '缺班查詢') {
       return handleFollowupEvent(event,{kind:'vacancy',choice:'list',lineUid,eventId:eventId || event.message.id || ''},env);
     }
@@ -236,7 +239,7 @@ async function handleEvent(event, env, ctx) {
       const params = new URLSearchParams(data);
       const choice = params.get('choice'), value = params.get('value') || '';
       if (choice==='keyboard') return;
-      if (['contact','leave','replies','leave_detail','contact_target'].includes(choice)) {
+      if (['contact','leave','replies','leave_detail','contact_target','leave_pick','contact_reply'].includes(choice)) {
         return handleFollowupEvent(event,{kind:'calendar_menu_action',lineUid,eventId,choice,value},env);
       }
       return;
@@ -267,10 +270,10 @@ async function handleEvent(event, env, ctx) {
     if (followup || swap) return handleFollowupEvent(event,payload,env);
     const result = await sendToGas(payload,env);
     const replied = await replyLineSafe(event.replyToken,result.message,env,result.quickReply,result.replyMessage);
-    if (!replied && kind==='shift_reply' && result.serial && result.message) {
+    if (!replied && result.message) {
       // A rejected Flex can still deliver the receipt and its three actions as a quick reply.
       if (result.replyMessage && await replyLineSafe(event.replyToken,result.message,env,result.quickReply)) return;
-      throw new Error('Employee shift receipt not delivered');
+      throw new Error('LINE decision reply not delivered: '+result.code);
     }
   }
 }

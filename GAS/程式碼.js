@@ -352,7 +352,7 @@ function doPost(e) {
     } else if (input.kind === 'leave_review') {
       result = masaluDeliverFollowup_(input,masaluLeaveReview_(input));
     } else if (input.kind === 'leave_replacement') {
-      result = masaluLeaveReplacement_(input);
+      result = masaluDeliverFollowup_(input,masaluLeaveReplacement_(input));
     } else if (input.kind === 'calendar_menu_action') {
       result = masaluDeliverFollowup_(input,masaluCalendarMenuAction_(input));
     } else if (input.kind === 'vacancy') {
@@ -362,7 +362,7 @@ function doPost(e) {
     } else if (input.kind === 'enable_weekly_calendar_menu') {
       result = masaluDeliverFollowup_(input,masaluEnableWeeklyMenuFromLine_(input.lineUid));
     } else if (input.kind === 'manager_decision') {
-      result = handleManagerDecision_(input);
+      result = masaluDeliverFollowup_(input,handleManagerDecision_(input));
     } else if (input.kind === 'bind_or_message') {
       result = handleLineText_(input);
     } else if (input.kind === 'calendar_api') {
@@ -989,6 +989,7 @@ function masaluLeaveReplacement_(input) {
 
 function masaluLeaveReplacementButton_(serial,label,decision,extra='') {
   return {type:'action',action:{type:'postback',label:label.slice(0,20),
+    ...(['skip','select','retry'].includes(decision)?{displayText:decision==='select'?'選擇替補：'+label.slice(0,20):label}:{}),
     data:'action=leave_replacement&serial='+serial+'&decision='+decision+extra}};
 }
 

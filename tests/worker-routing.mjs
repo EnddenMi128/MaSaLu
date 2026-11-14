@@ -6,6 +6,7 @@ import { createHmac } from 'node:crypto';
 const code = await readFile(new URL('../cloudflare/workers.js', import.meta.url), 'utf8');
 const workerModule = await import('data:text/javascript;base64,' + Buffer.from(code).toString('base64'));
 const worker = workerModule.default;
+const menuManifest = JSON.parse(await readFile(new URL('../rich-menu/menu.json',import.meta.url),'utf8'));
 const origin = 'https://enddenmi128.github.io';
 const env = {
   GAS_SHARED_SECRET: 'test-secret',
@@ -309,5 +310,53 @@ test('signed contact, swap and leave review events reach the correct GAS handler
     assert.equal(calls.find(call=>call.kind==='swap_response').decision,'agree');
     assert.deepEqual(calls.filter(call=>call.kind==='leave_review').map(call=>[call.serial,call.decision]),
       [['L-000001',undefined],['L-000001','approve'],['L-000001','reject']]);
+  } finally {globalThis.fetch=old;}
+});
+
+test('all rich menu shortcuts and new reply buttons reach their respective routes',async()=>{
+  const source={type:'user',userId:bindingUid};
+  const token='11111111-1111-1111-1111-111111111111';
+  const routes=[];
+  const areas=menuManifest.menu.areas;
+  const {width,height}=menuManifest.menu.size;
+  for (const {bounds,action} of areas) {
+    assert.ok(bounds.x>=0 && bounds.y>=0 && bounds.width>0 && bounds.height>0 &&
+      bounds.x+bounds.width<=width && bounds.y+bounds.height<=height);
+    if (action.type==='uri') assert.equal(new URL(action.uri).hostname,'liff.line.me');
+    else routes.push({type:'message',message:{type:'text',text:action.text}});
+  }
+  for (const data of [
+    'action=leave_replacement&serial=L-000001&decision=skip',
+    'action=leave_replacement&serial=L-000001&decision=select&staff=A04',
+    'action=calendar_menu&choice=leave_pick&value=0',
+    'action=calendar_menu&choice=contact_reply&value='+token,
+    'action=vacancy&choice=reject&id='+token
+  ]) routes.push({type:'postback',postback:{data}});
+  routes.push({type:'message',message:{type:'text',text:'團員回覆 '+token+' 測試回覆'}});
+  const body=JSON.stringify({events:routes.map((event,index)=>({...event,source,
+    replyToken:'reply-'+index,webhookEventId:'event-'+index}))});
+  const signature=createHmac('sha256',env.LINE_CHANNEL_SECRET).update(body).digest('base64');
+  const old=globalThis.fetch, calls=[], receipts=[];
+  globalThis.fetch=async(url,init)=>{
+    const payload=JSON.parse(init.body);
+    if (url===env.GAS_WEB_APP_URL) {
+      calls.push(payload);
+      return Response.json({ok:true,code:'done',message:'操作結果'});
+    }
+    assert.equal(url,'https://api.line.me/v2/bot/message/reply');
+    receipts.push(payload);
+    return Response.json({});
+  };
+  try {
+    const response=await worker.fetch(new Request('https://worker.example/webhook',{
+      method:'POST',body,headers:{'x-line-signature':signature}}),env);
+    assert.equal(response.status,200);
+    assert.deepEqual(calls.map(call=>[call.kind,call.choice || call.decision]),[
+      ['calendar_menu_action','contact'],['calendar_menu_action','leave'],['calendar_menu_action','replies'],
+      ['vacancy','list'],['personal_calendar_menu',undefined],['leave_replacement','skip'],
+      ['leave_replacement','select'],['calendar_menu_action','leave_pick'],
+      ['calendar_menu_action','contact_reply'],['vacancy','reject'],['calendar_menu_action','reply_send']
+    ]);
+    assert.equal(receipts.length,routes.length);
   } finally {globalThis.fetch=old;}
 });
