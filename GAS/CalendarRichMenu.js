@@ -58,11 +58,7 @@ function masaluUpdateCalendarRichMenu_(manual) {
   const lock = LockService.getScriptLock();
   lock.waitLock(20000);
   try {
-    if (manual || properties.getProperty('MASALU_RICH_MENU_ALIAS') !== page.alias) {
-      const id = masaluPrepareCalendarRichMenu_(page,assets,token);
-      masaluCalendarRichMenuRequest_('user/all/richmenu/'+id,token,'post');
-      properties.setProperty('MASALU_RICH_MENU_ALIAS',page.alias);
-    }
+    masaluEnsureDefaultCalendarMenu_(page,assets,token);
     page.failures = masaluSyncPersonalMenus_(page,assets,token,properties);
   } finally {
     lock.releaseLock();
@@ -79,7 +75,7 @@ function masaluCalendarMenuSettings_() {
   const token = PropertiesService.getScriptProperties().getProperty('LINE_CHANNEL_ACCESS_TOKEN');
   if (!token) throw new Error('缺少 LINE_CHANNEL_ACCESS_TOKEN');
   const assets = 'https://raw.githubusercontent.com/EnddenMi128/MaSaLu/main/rich-menu/';
-  const manifest = UrlFetchApp.fetch(assets+'menu.json',{muteHttpExceptions:true});
+  const manifest = UrlFetchApp.fetch(assets+'menu.json?week='+start,{muteHttpExceptions:true});
   if (manifest.getResponseCode() !== 200) throw new Error('兩週月曆圖文選單尚未發布');
   const page = JSON.parse(manifest.getContentText());
   if (!page?.menu || !page.alias || !page.image || !page.personal) throw new Error('月曆選單資料不完整');
@@ -93,10 +89,11 @@ function masaluRefreshOwnCalendarMenu_(uid) {
   const lock = LockService.getScriptLock();
   lock.waitLock(20000);
   try {
+    masaluEnsureDefaultCalendarMenu_(page,assets,token);
     const {status, entries, failureStage} = masaluSyncPersonalMenus_(page,assets,token,properties,uid);
     const messages = {
       unbound:'請先綁定團員帳號，再更新個人班表。',
-      empty:'本週與下週沒有你的班次。',
+      empty:'本週與下週沒有你的班次，已切回新版排班月曆。',
       failed:'圖文選單暫時無法套用（'+failureStage+'）。',
       linked:'已套用個人班表（'+page.start+' 至 '+page.end+'），請返回 LINE 聊天列表再開啟聊天室查看。'
     };
@@ -110,6 +107,15 @@ function masaluRefreshOwnCalendarMenu_(uid) {
       ...(list.length?{quickReply:{items:[masaluCalendarActionButton_('我要請假','leave_pick',0)]}}:{})};
   } finally {
     lock.releaseLock();
+  }
+}
+
+function masaluEnsureDefaultCalendarMenu_(page,assets,token) {
+  const id = masaluPrepareCalendarRichMenu_(page,assets,token);
+  if (!masaluCalendarMenuLinked_('user/all/richmenu',id,token)) {
+    masaluCalendarRichMenuRequest_('user/all/richmenu/'+id,token,'post');
+    if (!masaluCalendarMenuLinked_('user/all/richmenu',id,token))
+      throw new Error('LINE 尚未回報新版預設月曆已套用');
   }
 }
 

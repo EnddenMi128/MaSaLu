@@ -34,7 +34,7 @@ function masaluSyncPersonalMenus_(page, assets, token, properties, requestedUid)
         properties.setProperty(key, JSON.stringify(state));
       }
       const signature = entries.length ? Utilities.base64EncodeWebSafe(
-        Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, JSON.stringify(['grid-checkmark', page.personal, entries]))
+        Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, JSON.stringify(['grid-checkmark', page.personal, page.menu.areas, entries]))
       ) : '';
       const userPath = 'user/'+uid+'/richmenu';
       if (signature && state.signature === signature && state.id && !state.pending) {
@@ -43,10 +43,11 @@ function masaluSyncPersonalMenus_(page, assets, token, properties, requestedUid)
         // The account or menu was changed outside this script. Rebuild it.
       }
       if (!signature) {
-        if (!state.id && !state.pending) continue;
+        if (!state.id && !state.pending && !(requestedUid && employeeId)) continue;
         const linked = masaluCalendarRichMenuRequest_(userPath,token,'get',null,404);
         if (linked.getResponseCode() === 200 &&
-            [state.id,state.pending?.id].includes(JSON.parse(linked.getContentText()).richMenuId)) {
+            ((requestedUid && employeeId) ||
+             [state.id,state.pending?.id].includes(JSON.parse(linked.getContentText()).richMenuId))) {
           masaluCalendarRichMenuRequest_(userPath,token,'delete',null,404);
         }
         for (const id of new Set([state.id,state.pending?.id].filter(Boolean))) {

@@ -8,6 +8,7 @@ const code = await readFile(new URL('../GAS/程式碼.js', import.meta.url), 'ut
 const calendarCode = await readFile(new URL('../GAS/CalendarApi.js', import.meta.url), 'utf8');
 const swapCode = await readFile(new URL('../GAS/ShiftSwap.js', import.meta.url), 'utf8');
 const menuActionsCode = await readFile(new URL('../GAS/CalendarMenuActions.js', import.meta.url), 'utf8');
+const richMenuCode = await readFile(new URL('../GAS/CalendarRichMenu.js', import.meta.url), 'utf8');
 const uuid = '11111111-1111-1111-1111-111111111111';
 const uid = 'U'+'a'.repeat(32);
 const managerUid = 'U'+'b'.repeat(32);
@@ -43,6 +44,7 @@ function harness({mockManagerNotice=true}={}) {
   vm.runInContext(calendarCode,ctx);
   vm.runInContext(swapCode,ctx);
   vm.runInContext(menuActionsCode,ctx);
+  vm.runInContext(richMenuCode,ctx);
   const ledger={getDataRange:()=>({getValues:()=>[vm.runInContext('MASALU_SERIAL_HEADERS',ctx),...serialRows]}),
     appendRow:values=>serialRows.push(Array.from(values))};
   ctx.openBook_=()=>({getSheetByName:name=>name==='MaSaLu流水號'?ledger:null});
@@ -357,9 +359,27 @@ test('replacement picker lists same-day unscheduled bound people across all shif
   const result=h.ctx.handleManagerDecision_(h.input);
   assert.match(result.message,/^請選擇替補對象/);
   const labels=result.quickReply.items.map(i=>i.action.label);
-  assert.deepEqual([...labels],['團長','人員1','人員2','取消']);
+  assert.deepEqual([...labels],['略過','團長','人員1','人員2','新增','重發排班']);
+  const notice=h.ctx.masaluManagerReplyMessage_({id:uuid,version:1,name:'無法出席',status:'不同意',
+    date:'2026-11-05',shift:'玉門'},h.roster);
+  assert.deepEqual(Array.from(notice.quickReply.items,item=>item.action.label),[...labels]);
+  assert.equal(notice.quickReply.items.find(item=>item.action.label==='新增').action.type,'uri');
   assert.equal(h.records.length,3);
   assert.equal(h.sends.length,0);
+});
+
+test('calendar refresh replaces an older default menu and verifies it is linked',()=>{
+  const h=harness(), calls=[];
+  let linked='old-menu';
+  h.ctx.masaluPrepareCalendarRichMenu_=()=> 'new-menu';
+  h.ctx.masaluCalendarMenuLinked_=(path,id)=>path==='user/all/richmenu' && id===linked;
+  h.ctx.masaluCalendarRichMenuRequest_=(path,token,method)=>{
+    calls.push([path,method]);
+    linked=path.split('/').at(-1);
+  };
+  h.ctx.masaluEnsureDefaultCalendarMenu_({},'','token');
+  h.ctx.masaluEnsureDefaultCalendarMenu_({},'','token');
+  assert.deepEqual(calls,[['user/all/richmenu/new-menu','post']]);
 });
 
 test('replacement picker paginates within LINE limits and handles empty/cancel',()=>{
