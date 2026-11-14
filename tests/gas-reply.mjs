@@ -525,7 +525,9 @@ test('leave supports type and optional note, validates owner and version, and de
   assert.equal(h.requests[0][11],'待處理');
   const card=h.pushes[0].messages[0];
   assert.match(card.contents.body.contents[0].text,/員工甲[\s\S]*2026-11-05[\s\S]*=not a formula[\s\S]*是否核准/);
-  assert.deepEqual(card.contents.footer.contents.map(button=>button.action.label),['核准','不核准']);
+  assert.deepEqual(card.contents.footer.contents[0].contents.map(button=>button.action.label),['核准','不核准']);
+  assert.equal(card.contents.footer.contents[1].action.label,'聯絡 員工甲');
+  assert.match(card.contents.footer.contents[1].action.data,/serial=L-000001&decision=contact$/);
   const repeat=run({choice:'leave_personal_send'});
   assert.equal(repeat.code,'request_already');
   assert.equal(repeat.serial,submitted.serial);
@@ -536,11 +538,18 @@ test('leave supports type and optional note, validates owner and version, and de
 
 test('managers can review a legacy leave request once and retry an undelivered result',()=>{
   const h=followupHarness();
+  vm.runInContext(menuActionsCode,h.ctx);
   h.ledger.appendRow([uuid+':1:leave','L-000001']);
   h.requests.push([uuid+':1:leave',new Date(),uuid,1,'A04','員工甲','2026-11-05','玉門','請假申請','病假','感冒','待處理','A01']);
   const review=(decision,lineUid=managerUid)=>h.ctx.masaluLeaveReview_({lineUid,serial:'L-000001',decision});
   assert.equal(review('approve',uid).code,'unauthorized');
-  assert.equal(review().quickReply.items.length,2);
+  assert.deepEqual(Array.from(review().quickReply.items,item=>item.action.label),['核准','不核准','聯絡 員工甲']);
+  assert.equal(review('contact',uid).code,'unauthorized');
+  const contact=review('contact');
+  assert.match(contact.message,/傳給 員工甲/);
+  assert.equal(contact.quickReply.items[0].action.fillInText,'團員留言 A04 ');
+  assert.equal(h.requests[0][11],'待處理');
+  assert.equal(h.pushes.length,0);
   h.fail.add(uid);
   assert.equal(review('approve').code,'leave_result_pending');
   assert.equal(h.requests[0][11],'已核准');

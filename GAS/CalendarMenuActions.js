@@ -80,13 +80,18 @@ function masaluCalendarMenuAction_(input) {
   }
   if (!contacts.includes(value)) return reply('unavailable','目前無法聯絡這位團員。請重新選擇。');
   if (choice==='contact_target') {
-    const prefix = '團員留言 '+value+' ';
-    return reply('contact','傳給 '+(roster[value].name || value)+'\n點「輸入訊息」，也可手動輸入「'+prefix+'你的訊息」。',[
-      masaluCalendarActionButton_('輸入訊息','keyboard','',{inputOption:'openKeyboard',fillInText:prefix})
-    ]);
+    return masaluMemberContactPrompt_(value,roster[value].name || value);
   }
   if (choice!=='send') return reply('invalid','請從「聯絡團員」重新選擇收件人。');
   return masaluSendMemberContact_(roster,employeeId,value,text,eventId,false);
+}
+
+function masaluMemberContactPrompt_(id,name) {
+  const prefix = '團員留言 '+id+' ';
+  return {ok:true,code:'contact',message:'傳給 '+name+'\n點「輸入訊息」，也可手動輸入「'+prefix+'你的訊息」。',
+    quickReply:{items:[masaluCalendarActionButton_('輸入訊息','keyboard','',{
+      inputOption:'openKeyboard',fillInText:prefix
+    })]}};
 }
 
 function masaluContactReplyProof_(recipientId,recipientUid,senderId,senderUid) {

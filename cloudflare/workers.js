@@ -250,7 +250,7 @@ async function handleEvent(event, env, ctx) {
     if (vacancy) {
       return handleFollowupEvent(event,{kind:'vacancy',lineUid,eventId,choice:vacancy[1],id:vacancy[2]},env);
     }
-    const leaveReview = typeof data==='string' && /^action=leave_review&serial=(L-\d{6,})&decision=(approve|reject)$/.exec(data);
+    const leaveReview = typeof data==='string' && /^action=leave_review&serial=(L-\d{6,})&decision=(approve|reject|contact)$/.exec(data);
     if (leaveReview) {
       return handleFollowupEvent(event,{kind:'leave_review',lineUid,eventId,serial:leaveReview[1],decision:leaveReview[2]},env);
     }

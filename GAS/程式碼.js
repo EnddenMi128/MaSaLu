@@ -847,7 +847,8 @@ function masaluSubmitFollowup_(shift, kind, leaveType, note, roster, caseId, app
       const recipient=roster[id].uid;
       const accepted=caseId
         ? masaluPushWorkflowMessage_(recipient,{type:'text',text},'swap-review:'+caseId)
-        : masaluPushWorkflowMessage_(recipient,masaluLeaveReviewCard_(text,serial),'leave-review:'+serial);
+        : masaluPushWorkflowMessage_(recipient,masaluLeaveReviewCard_(text,serial,
+          validLineUid_(roster[shift.employeeId]?.uid) && roster[shift.employeeId].uid!==recipient ? shift.name : ''),'leave-review:'+serial);
       if (accepted) {
         delivered.add(id);
         sheet.getRange(rowNumber,13).setValue([...delivered].join(','));
@@ -873,19 +874,25 @@ function masaluEnsureLeaveColumns_(sheet) {
   range.setValues([headers]);
 }
 
-function masaluLeaveReviewActions_(serial) {
-  return [['核准','approve'],['不核准','reject']].map(([label,decision])=>({
+function masaluLeaveReviewActions_(serial,applicantName) {
+  const actions = [['核准','approve'],['不核准','reject']];
+  if (applicantName) actions.push([('聯絡 '+applicantName).slice(0,20),'contact']);
+  return actions.map(([label,decision])=>({
     type:'postback',label,displayText:label+' '+serial,
     data:'action=leave_review&serial='+serial+'&decision='+decision
   }));
 }
 
-function masaluLeaveReviewCard_(text,serial) {
+function masaluLeaveReviewCard_(text,serial,applicantName) {
+  const actions = masaluLeaveReviewActions_(serial,applicantName);
   return {type:'flex',altText:'請假申請 '+serial+'｜待團長審核',contents:{type:'bubble',
     body:{type:'box',layout:'vertical',contents:[{type:'text',wrap:true,text:text+'\n\n是否核准？'}]},
-    footer:{type:'box',layout:'horizontal',spacing:'sm',contents:masaluLeaveReviewActions_(serial).map(action=>({
-      type:'button',style:'primary',color:action.label==='核准'?'#249B59':'#CF4545',action
-    }))}
+    footer:{type:'box',layout:'vertical',spacing:'sm',contents:[
+      {type:'box',layout:'horizontal',spacing:'sm',contents:actions.slice(0,2).map(action=>({
+        type:'button',style:'primary',color:action.label==='核准'?'#249B59':'#CF4545',action
+      }))},
+      ...actions.slice(2).map(action=>({type:'button',style:'secondary',height:'sm',action}))
+    ]}
   }};
 }
 
@@ -893,7 +900,7 @@ function masaluLeaveReview_(input) {
   const reply = (code,message)=>({ok:true,code,message});
   const {lineUid,serial,decision} = input;
   if (!validLineUid_(lineUid) || !/^L-\d{6,}$/.test(serial || '') ||
-      (decision && !['approve','reject'].includes(decision))) return reply('invalid','請輸入「審核請假 L-000001」格式的指令。');
+      (decision && !['approve','reject','contact'].includes(decision))) return reply('invalid','請輸入「審核請假 L-000001」格式的指令。');
   const lock = LockService.getScriptLock();
   lock.waitLock(20000);
   try {
@@ -907,11 +914,20 @@ function masaluLeaveReview_(input) {
     const index = masaluFindLeaveRequest_(book,requests,serial);
     if (index<0) return reply('missing','找不到這筆請假申請。');
     const row = requests.rows[index];
+    const applicantId = String(row[4] || '').trim();
+    const applicant = roster[applicantId];
+    if (decision==='contact') {
+      if (applicant?.uid===lineUid) return reply('unavailable','這是你自己的請假申請。');
+      if (!validLineUid_(applicant?.uid)) return reply('unavailable','這位申請人目前無法透過團員對話聯絡。');
+      return masaluMemberContactPrompt_(applicantId,applicant.name || row[5] || applicantId);
+    }
     const details = ['請假申請 '+serial,'人員：'+row[5],'日期：'+masaluDate_(row[6]),'班別：'+row[7],
       '假別：'+row[9],row[10]?'留言：'+row[10]:''].filter(Boolean).join('\n');
     const pending = ['待處理','待團長審核'].includes(row[11]);
     if (!decision && pending) return {...reply('leave_review_pending',details+'\n是否核准？'),
-      quickReply:{items:masaluLeaveReviewActions_(serial).map(action=>({type:'action',action}))}};
+      quickReply:{items:masaluLeaveReviewActions_(serial,
+        validLineUid_(applicant?.uid) && applicant.uid!==lineUid ? applicant.name || row[5] || applicantId : ''
+      ).map(action=>({type:'action',action}))}};
     if (!decision) {
       const statusReply = reply('leave_review_status',details+'\n結果：'+row[11]);
       if (row[14] || !['已核准','不核准'].includes(row[11])) return row[11]==='已核准'

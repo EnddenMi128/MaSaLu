@@ -288,7 +288,8 @@ test('signed contact, swap and leave review events reach the correct GAS handler
     {type:'postback',postback:{data:'action=swap_response&id='+id+'&decision=agree'}},
     {type:'message',message:{type:'text',text:'審核請假 l-000001',id:'legacy-leave'}},
     {type:'postback',postback:{data:'action=leave_review&serial=L-000001&decision=approve'}},
-    {type:'postback',postback:{data:'action=leave_review&serial=L-000001&decision=reject'}}
+    {type:'postback',postback:{data:'action=leave_review&serial=L-000001&decision=reject'}},
+    {type:'postback',postback:{data:'action=leave_review&serial=L-000001&decision=contact'}}
   ];
   const body=JSON.stringify({events:events.map(event=>({...event,source,replyToken:'reply',timestamp:123}))});
   const signature=createHmac('sha256',env.LINE_CHANNEL_SECRET).update(body).digest('base64');
@@ -311,6 +312,6 @@ test('signed contact, swap and leave review events reach the correct GAS handler
     assert.equal(calls.find(call=>call.choice==='swap').page,1);
     assert.equal(calls.find(call=>call.kind==='swap_response').decision,'agree');
     assert.deepEqual(calls.filter(call=>call.kind==='leave_review').map(call=>[call.serial,call.decision]),
-      [['L-000001',undefined],['L-000001','approve'],['L-000001','reject']]);
+      [['L-000001',undefined],['L-000001','approve'],['L-000001','reject'],['L-000001','contact']]);
   } finally {globalThis.fetch=old;}
 });
