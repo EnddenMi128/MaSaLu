@@ -222,7 +222,7 @@ async function handleEvent(event, env, ctx) {
       await handleFollowupEvent(event,{kind:'shift_followup',lineUid,eventId:eventId || event.message.id || '',text},env);
       return;
     }
-    if (!text.startsWith('綁定') && !/^[^\r\n]+[A-Za-z0-9]{12}$/u.test(text)) {
+    if (!text.startsWith('綁定') && !/^[^\r\n]+?\s*[A-Za-z0-9]{12}$/u.test(text)) {
       if (!text) return;
       await handleFollowupEvent(event,{kind:'contact_message',lineUid,text,timestamp:event.timestamp,
         eventId:eventId || event.message.id || ''},env);

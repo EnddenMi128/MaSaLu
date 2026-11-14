@@ -1303,11 +1303,12 @@ function handleLineText_(input) {
   const uid = String(input.lineUid || '');
   const text = String(input.text || '').trim();
   if (!validLineUid_(uid)) return {ok: true, code: 'invalid', message: '無法識別 LINE 帳號。'};
-  const match = /^([^\r\n]+)([A-Za-z0-9]{12})$/u.exec(text);
-  if (!match || /^綁定[\s:：]+[A-Za-z0-9]{12}$/u.test(text)) {
-    return {ok: true, code: 'invalid', message: '請直接貼上員工名單的姓名和12碼綁定碼，例如：王小明 ABCDEF123456'};
+  const credentials = text.replace(/^綁定[\s:：]+/u, '');
+  const match = /^([^\r\n]+?)\s*([A-Za-z0-9]{12})$/u.exec(credentials);
+  const name = match ? match[1].trim() : '';
+  if (!name) {
+    return {ok: true, code: 'invalid', message: '請輸入「綁定 姓名 12碼綁定碼」，可用空格或換行分隔。'};
   }
-  const name = match[1].trim();
   const code = match[2].toUpperCase();
   const lock = LockService.getScriptLock();
   lock.waitLock(20000);
