@@ -226,8 +226,6 @@ function sendShiftRow_(rowNumber, force, shiftId, declinedVersion) {
     if (!force && ['同意', '不同意'].includes(String(current[7]))) return {code: 'skipped', message: '第 ' + rowNumber + ' 列已有回覆；如需重發請使用「重新發送」。'};
     const info = shiftInfo_(display);
     const recipient = recipientForRow_(current, employeeIndex_());
-    const token = PropertiesService.getScriptProperties().getProperty('LINE_CHANNEL_ACCESS_TOKEN');
-    if (!token) throw new Error('尚未設定 Script Property：LINE_CHANNEL_ACCESS_TOKEN');
     let id = String(current[1] || '').trim();
     if (!id) { id = Utilities.getUuid(); sheet.getRange(rowNumber, 2).setValue(id); }
     if (!/^[a-f0-9-]{36}$/i.test(id)) throw new Error('排班ID 格式不正確：' + id);
@@ -238,13 +236,9 @@ function sendShiftRow_(rowNumber, force, shiftId, declinedVersion) {
     sheet.getRange(rowNumber, 16).clearContent();
     SpreadsheetApp.flush();
     try {
-      const http = UrlFetchApp.fetch('https://api.line.me/v2/bot/message/push', {
-        method: 'post',
-        contentType: 'application/json; charset=UTF-8',
-        headers: {Authorization:'Bearer '+token,...(retryKey?{'X-Line-Retry-Key':retryKey}:{})},
-        payload: JSON.stringify({to: recipient.uid, messages: [message]}),
-        muteHttpExceptions: true
-      });
+      const delivery = masaluPushWithQuotaFallback_(recipient.uid,[message],
+        declinedResend ? 'shift-resend:'+id+':'+version : '');
+      const http = delivery.response;
       const status = http.getResponseCode();
       if (!(status>=200 && status<300 || (retryKey && status===409 && masaluLineRetryAccepted_(http)))) {
         throw new Error('LINE HTTP '+status+'：'+http.getContentText().slice(0,250));
@@ -253,6 +247,7 @@ function sendShiftRow_(rowNumber, force, shiftId, declinedVersion) {
         sheet.getRange(rowNumber,17).setValue(oldNote.replace(/(?:｜)?\[管理已略過\]/g,''));
       }
       sheet.getRange(rowNumber, 10, 1, 2).setValues([['已發送', new Date()]]);
+      safeLog_('發送帳號',id,recipient.name,'成功',delivery.channel,'');
       safeLog_('發送', id, String(current[2] || ''), '成功', recipient.name, '');
       return {code: 'sent', message: '第 ' + rowNumber + ' 列已成功向 LINE API 提交通知：' + recipient.name + '。（不代表對方已讀）'};
     } catch (err) {
@@ -443,8 +438,6 @@ function masaluNotifyCancellations_(delta) {
   const summary={sent:0,failed:0,skipped:0,details:[]};
   if (!delta || !delta.removed || !delta.removed.length) return summary;
   const roster=employeeIndex_();
-  const token=PropertiesService.getScriptProperties().getProperty('LINE_CHANNEL_ACCESS_TOKEN');
-  if (!token) throw new Error('缺少 LINE_CHANNEL_ACCESS_TOKEN');
   const targets=new Map();
   if (delta.clear) {
     Object.keys(roster).forEach(id=>{
@@ -474,16 +467,12 @@ function masaluNotifyCancellations_(delta) {
       ? '當日班次已取消\n'+delta.date
       : '班次已取消\n'+[delta.date,person.shift].filter(Boolean).join(' ・ ');
     try {
-      const response=UrlFetchApp.fetch('https://api.line.me/v2/bot/message/push',{
-        method:'post',contentType:'application/json; charset=UTF-8',
-        headers:{Authorization:'Bearer '+token},
-        payload:JSON.stringify({to:person.uid,messages:[{type:'text',text:message}]}),
-        muteHttpExceptions:true
-      });
+      const delivery=masaluPushWithQuotaFallback_(person.uid,[{type:'text',text:message}]);
+      const response=delivery.response;
       if(response.getResponseCode()<200||response.getResponseCode()>=300)
         throw new Error('LINE HTTP '+response.getResponseCode());
       summary.sent++;
-      safeLog_('取消通知','',person.id,'成功',delta.date,'');
+      safeLog_('取消通知','',person.id,'成功',delta.date+' '+delivery.channel,'');
     } catch(err) {
       summary.failed++;
       summary.details.push({status:'failed',id:person.id,message:String(err.message).slice(0,160)});
@@ -595,16 +584,41 @@ function masaluLineRetryAccepted_(response) {
   return Object.keys(response.getAllHeaders()).some(name=>name.toLowerCase()==='x-line-accepted-request-id');
 }
 
+/** Use the second OA only for recipients confirmed as friends of that OA. */
+function masaluPushWithQuotaFallback_(uid, messages, retryIdentity) {
+  const properties = PropertiesService.getScriptProperties();
+  const primary = properties.getProperty('LINE_CHANNEL_ACCESS_TOKEN');
+  if (!primary) throw new Error('缺少 LINE_CHANNEL_ACCESS_TOKEN');
+  const body = JSON.stringify({to:uid,messages});
+  const send = (token, channel) => {
+    const headers = {Authorization:'Bearer '+token};
+    if (retryIdentity) headers['X-Line-Retry-Key'] = masaluLineRetryKey_(channel+':'+retryIdentity+':'+uid);
+    return UrlFetchApp.fetch('https://api.line.me/v2/bot/message/push', {
+      method:'post',contentType:'application/json; charset=UTF-8',headers,
+      payload:body,muteHttpExceptions:true
+    });
+  };
+  const first = send(primary,'primary');
+  const monthlyLimit = first.getResponseCode()===429 &&
+    /You have reached your monthly limit\./.test(first.getContentText());
+  if (!monthlyLimit) return {response:first,channel:'primary'};
+  const backup = properties.getProperty('MASALU_BACKUP_LINE_CHANNEL_ACCESS_TOKEN');
+  const eligible = (properties.getProperty('MASALU_BACKUP_FRIEND_UIDS') || '')
+    .split(/[\s,]+/).includes(uid);
+  if (!backup || !eligible) return {response:first,channel:'primary'};
+  const second = send(backup,'backup');
+  const status = second.getResponseCode();
+  if (status>=200 && status<300 || retryIdentity && status===409 && masaluLineRetryAccepted_(second)) {
+    console.log('LINE 月額度切換：副帳號已發送，收件者 '+uid.slice(0,6)+'…');
+    return {response:second,channel:'backup'};
+  }
+  return {response:second,channel:'backup'};
+}
+
 function masaluPushWorkflowMessage_(uid, message, identity) {
-  const token = PropertiesService.getScriptProperties().getProperty('LINE_CHANNEL_ACCESS_TOKEN');
-  if (!token) return false;
-  const headers = {Authorization:'Bearer '+token,'X-Line-Retry-Key':masaluLineRetryKey_(identity+':'+uid)};
   for (let attempt=0; attempt<2; attempt++) {
     try {
-      const response = UrlFetchApp.fetch('https://api.line.me/v2/bot/message/push',{
-        method:'post',contentType:'application/json; charset=UTF-8',headers,
-        payload:JSON.stringify({to:uid,messages:[message]}),muteHttpExceptions:true
-      });
+      const {response} = masaluPushWithQuotaFallback_(uid,[message],identity);
       const status=response.getResponseCode();
       if (status>=200 && status<300 || status===409 && masaluLineRetryAccepted_(response)) return true;
       console.error('LINE 推播失敗：HTTP '+status);
@@ -624,16 +638,10 @@ function masaluDeliverFollowup_(input, result) {
 }
 
 function masaluDeliverShiftReceipt_(uid, receipt, eventId) {
-  const token = PropertiesService.getScriptProperties().getProperty('LINE_CHANNEL_ACCESS_TOKEN');
-  if (!token) return false;
   try {
     const identity = 'shift-receipt:'+(eventId || receipt.serial);
     const text = {type:'text',text:receipt.message,...(receipt.quickReply?{quickReply:receipt.quickReply}:{})};
-    const push = (message,key) => UrlFetchApp.fetch('https://api.line.me/v2/bot/message/push',{
-      method:'post',contentType:'application/json; charset=UTF-8',
-      headers:{Authorization:'Bearer '+token,'X-Line-Retry-Key':masaluLineRetryKey_(key)},
-      payload:JSON.stringify({to:uid,messages:[message]}),muteHttpExceptions:true
-    });
+    const push = (message,key) => masaluPushWithQuotaFallback_(uid,[message],key).response;
     let response = push(receipt.replyMessage || text,identity);
     if (response.getResponseCode()===400 && receipt.replyMessage) response = push(text,identity+':text');
     const status = response.getResponseCode();
@@ -1104,8 +1112,6 @@ function masaluLeaveReplacementLocked_(input, request, roster, receipt) {
 
 /** Notify A01–A03, skipping the individual update for a manager receiving their own acceptance card. */
 function masaluNotifyManagers_(notice, acceptanceRecipientUid) {
-  const token = PropertiesService.getScriptProperties().getProperty('LINE_CHANNEL_ACCESS_TOKEN');
-  if (!token) throw new Error('缺少 LINE_CHANNEL_ACCESS_TOKEN');
   const managers = employeeIndex_();
   const uids = [...new Set(['A01', 'A02', 'A03']
     .map(id => managers[id] && managers[id].uid)
@@ -1119,11 +1125,7 @@ function masaluNotifyManagers_(notice, acceptanceRecipientUid) {
     if (publication) messages.push({type:'text',text:publication});
     if (!messages.length) return;
     try {
-      const result = UrlFetchApp.fetch('https://api.line.me/v2/bot/message/push', {
-        method:'post',contentType:'application/json; charset=UTF-8',
-        headers:{Authorization:'Bearer '+token},
-        payload:JSON.stringify({to:uid,messages}),muteHttpExceptions:true
-      });
+      const result = masaluPushWithQuotaFallback_(uid,messages).response;
       if (result.getResponseCode() < 200 || result.getResponseCode() >= 300)
         throw new Error('LINE HTTP '+result.getResponseCode());
       summary.sent++;
