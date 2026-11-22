@@ -368,6 +368,7 @@ test('clear notification broadcasts to bound staff; non-clear only notifies remo
   const {h}=editHarness(), deliveries=[];
   const uid1='U'+'1'.repeat(32),uid2='U'+'2'.repeat(32);
   h.ctx.employeeIndex_=()=>({A01:{name:'團長',uid:uid1},A04:{name:'員工甲',uid:uid2},A05:{name:'未綁定',uid:''}});
+  h.ctx.PropertiesService={getScriptProperties:()=>({getProperty:key=>key==='LINE_CHANNEL_ACCESS_TOKEN'?'primary':''})};
   h.ctx.UrlFetchApp={fetch(_url,options){deliveries.push(JSON.parse(options.payload));return {getResponseCode:()=>200};}};
   const delta={date:'2026-11-05',clear:true,addedIds:[],removed:[{staffId:'A04',shift:'玉門'}]};
   const all=h.ctx.masaluNotifyCancellations_(delta);
@@ -380,6 +381,32 @@ test('clear notification broadcasts to bound staff; non-clear only notifies remo
   assert.equal(targeted.sent,1);
   assert.equal(deliveries[0].to,uid2);
   assert.equal(deliveries[0].messages[0].text,'班次已取消\n2026-11-05 ・ 玉門');
+});
+
+test('monthly quota switches only for a verified backup friend',()=>{
+  const {ctx}=harness(), sent=[];
+  ctx.PropertiesService={getScriptProperties:()=>({getProperty:key=>({
+    LINE_CHANNEL_ACCESS_TOKEN:'primary',
+    MASALU_BACKUP_LINE_CHANNEL_ACCESS_TOKEN:'backup',
+    MASALU_BACKUP_FRIEND_UIDS:uid,
+    MASALU_BACKUP_OA_ENABLED:'true'
+  })[key] || ''})};
+  ctx.UrlFetchApp={fetch(_url,options){
+    sent.push(options.headers.Authorization);
+    return options.headers.Authorization==='Bearer primary'
+      ? {getResponseCode:()=>429,getContentText:()=>JSON.stringify({message:'You have reached your monthly limit.'})}
+      : {getResponseCode:()=>200};
+  }};
+  const result=ctx.masaluPushWithQuotaFallback_(uid,[{type:'text',text:'測試'}]);
+  assert.equal(result.channel,'backup');
+  assert.deepEqual(sent,['Bearer primary','Bearer backup']);
+  sent.length=0;
+  ctx.PropertiesService={getScriptProperties:()=>({getProperty:key=>({
+    LINE_CHANNEL_ACCESS_TOKEN:'primary',
+    MASALU_BACKUP_LINE_CHANNEL_ACCESS_TOKEN:'backup'
+  })[key] || ''})};
+  assert.equal(ctx.masaluPushWithQuotaFallback_(uid,[{type:'text',text:'測試'}]).channel,'primary');
+  assert.deepEqual(sent,['Bearer primary']);
 });
 
 function replacementHarness(count=3) {
