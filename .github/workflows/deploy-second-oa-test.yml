@@ -1,0 +1,42 @@
+name: Deploy MaSaLu second OA test Worker ONLY
+
+on:
+  push:
+    branches:
+      - review/second-oa-fallback-20261122
+    paths:
+      - .github/workflows/deploy-second-oa-test.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: masalu-second-oa-test-worker
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy isolated second LINE OA Worker
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check target identity and credentials (never print values)
+        shell: bash
+        run: |
+          test -n "$CLOUDFLARE_API_TOKEN"
+          test -n "$CLOUDFLARE_ACCOUNT_ID"
+          node -e 'const fs=require("node:fs");const c=JSON.parse(fs.readFileSync("wrangler.test.jsonc","utf8")); if(c.name!=="leader-shift-line-webhook-test"||c.main!=="cloudflare/workers.js"||c.workers_dev!==true||c.keep_vars!==true) process.exit(1)'
+      - name: Check Worker JavaScript
+        run: node --check cloudflare/workers.js
+      - name: Deploy only test Worker (no GAS, no primary Worker)
+        run: npx --yes wrangler@4 deploy --config wrangler.test.jsonc --keep-vars
+      - name: Check test Worker health (does not prove LINE credentials)
+        run: |
+          curl --fail --silent --show-error --retry 3 --retry-delay 2 \
+            https://leader-shift-line-webhook-test.edn869728.workers.dev/health
