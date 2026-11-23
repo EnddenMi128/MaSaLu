@@ -466,6 +466,40 @@ test('calendar refresh replaces an older default menu and verifies it is linked'
   assert.deepEqual(calls,[['user/all/richmenu/new-menu','post']]);
 });
 
+test('calendar publication uses each OA token and isolates personal menu state',()=>{
+  const {ctx}=harness(), calls=[];
+  const page={start:'2026-11-22',end:'2026-12-05'};
+  ctx.masaluCalendarMenuSettings_=()=>({properties:{},assets:'',page,channels:[
+    {name:'primary',token:'primary-token',prefix:'MASALU_PERSONAL_MENU_'},
+    {name:'backup',token:'backup-token',prefix:'MASALU_BACKUP_PERSONAL_MENU_',uids:new Set([uid])}
+  ]});
+  ctx.masaluEnsureDefaultCalendarMenu_=(p,a,token)=>calls.push(['default',token]);
+  ctx.masaluSyncPersonalMenus_=(p,a,token,props,requested,prefix,uids)=>{
+    calls.push(['personal',token,prefix,uids?.has(uid) || false]);
+    return 0;
+  };
+  assert.equal(ctx.masaluUpdateCalendarRichMenu_(true).failures,0);
+  assert.deepEqual(calls,[
+    ['default','primary-token'],['personal','primary-token','MASALU_PERSONAL_MENU_',false],
+    ['default','backup-token'],['personal','backup-token','MASALU_BACKUP_PERSONAL_MENU_',true]
+  ]);
+});
+
+test('backup menu refresh stays on the backup OA and replies through its Worker',()=>{
+  const {ctx}=harness();
+  const calls=[];
+  ctx.masaluCalendarMenuSettings_=()=>({properties:{},assets:'',page:{start:'2026-11-22',end:'2026-12-05'},
+    channels:[{name:'primary',token:'primary-token',prefix:'MASALU_PERSONAL_MENU_'},
+      {name:'backup',token:'backup-token',prefix:'MASALU_BACKUP_PERSONAL_MENU_',uids:new Set([uid])}]});
+  ctx.masaluEnsureDefaultCalendarMenu_=(p,a,token)=>calls.push(token);
+  ctx.masaluSyncPersonalMenus_=(p,a,token)=>{calls.push(token);return {status:'empty',entries:[]};};
+  const result=ctx.masaluRefreshOwnCalendarMenu_(uid,'backup');
+  assert.equal(result.code,'empty');
+  assert.deepEqual(calls,['backup-token','backup-token']);
+  assert.equal(ctx.masaluDeliverFollowup_({channel:'backup',lineUid:uid,eventId:'event'},result),result);
+  assert.equal(ctx.masaluRefreshOwnCalendarMenu_(managerUid,'backup').code,'menu_unbound');
+});
+
 test('replacement picker paginates within LINE limits and handles empty/cancel',()=>{
   const h=replacementHarness(25);
   const first=h.ctx.handleManagerDecision_(h.input);

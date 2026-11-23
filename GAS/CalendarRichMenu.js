@@ -50,7 +50,7 @@ function masaluRefreshWeeklyCalendarRichMenu() {
 
 function masaluUpdateCalendarRichMenu_(manual) {
   const settings = masaluCalendarMenuSettings_();
-  const {properties, token, assets, page} = settings;
+  const {properties, channels, assets, page} = settings;
   if (!page) {
     if (manual) throw new Error('本週月曆圖片正在更新，稍後會自動重試。');
     return;
@@ -58,8 +58,12 @@ function masaluUpdateCalendarRichMenu_(manual) {
   const lock = LockService.getScriptLock();
   lock.waitLock(20000);
   try {
-    masaluEnsureDefaultCalendarMenu_(page,assets,token);
-    page.failures = masaluSyncPersonalMenus_(page,assets,token,properties);
+    page.failures = 0;
+    for (const channel of channels) {
+      masaluEnsureDefaultCalendarMenu_(page,assets,channel.token);
+      page.failures += masaluSyncPersonalMenus_(page,assets,channel.token,properties,
+        undefined,channel.prefix,channel.uids);
+    }
   } finally {
     lock.releaseLock();
   }
@@ -72,25 +76,38 @@ function masaluCalendarMenuSettings_() {
   sunday.setUTCDate(sunday.getUTCDate()-sunday.getUTCDay());
   const start = sunday.toISOString().slice(0,10);
   const properties = PropertiesService.getScriptProperties();
-  const token = PropertiesService.getScriptProperties().getProperty('LINE_CHANNEL_ACCESS_TOKEN');
+  const token = properties.getProperty('LINE_CHANNEL_ACCESS_TOKEN');
   if (!token) throw new Error('缺少 LINE_CHANNEL_ACCESS_TOKEN');
+  const channels = [{name:'primary',token,prefix:'MASALU_PERSONAL_MENU_'}];
+  if (properties.getProperty('MASALU_BACKUP_OA_ENABLED') === 'true') {
+    const backup = properties.getProperty('MASALU_BACKUP_LINE_CHANNEL_ACCESS_TOKEN');
+    if (!backup) throw new Error('缺少 MASALU_BACKUP_LINE_CHANNEL_ACCESS_TOKEN');
+    const uids = new Set((properties.getProperty('MASALU_BACKUP_FRIEND_UIDS') || '')
+      .split(/[\s,]+/).filter(validLineUid_));
+    channels.push({name:'backup',token:backup,prefix:'MASALU_BACKUP_PERSONAL_MENU_',uids});
+  }
   const assets = 'https://raw.githubusercontent.com/EnddenMi128/MaSaLu/main/rich-menu/';
   const manifest = UrlFetchApp.fetch(assets+'menu.json?week='+start,{muteHttpExceptions:true});
   if (manifest.getResponseCode() !== 200) throw new Error('兩週月曆圖文選單尚未發布');
   const page = JSON.parse(manifest.getContentText());
   if (!page?.menu || !page.alias || !page.image || !page.personal) throw new Error('月曆選單資料不完整');
-  return {start, properties, token, assets, page:page.start === start ? page : null};
+  return {start, properties, channels, assets, page:page.start === start ? page : null};
 }
 
-function masaluRefreshOwnCalendarMenu_(uid) {
+function masaluRefreshOwnCalendarMenu_(uid, channelName) {
   if (!validLineUid_(uid)) return {ok:true,code:'invalid',message:'無法識別 LINE 帳號。'};
-  const {properties, token, assets, page} = masaluCalendarMenuSettings_();
+  const {properties, channels, assets, page} = masaluCalendarMenuSettings_();
   if (!page) return {ok:true,code:'menu_waiting',message:'本週月曆圖片正在更新，請稍後再試。'};
+  const channel = channels.find(item=>item.name===(channelName || 'primary'));
+  if (!channel) return {ok:true,code:'menu_unavailable',message:'這個 LINE 帳號的月曆選單尚未啟用。'};
+  if (channel.uids && !channel.uids.has(uid))
+    return {ok:true,code:'menu_unbound',message:'請先完成第二個 LINE 官方帳號的好友驗證。'};
   const lock = LockService.getScriptLock();
   lock.waitLock(20000);
   try {
-    masaluEnsureDefaultCalendarMenu_(page,assets,token);
-    const {status, entries, failureStage} = masaluSyncPersonalMenus_(page,assets,token,properties,uid);
+    masaluEnsureDefaultCalendarMenu_(page,assets,channel.token);
+    const {status, entries, failureStage} = masaluSyncPersonalMenus_(page,assets,
+      channel.token,properties,uid,channel.prefix,channel.uids);
     const messages = {
       unbound:'請先綁定團員帳號，再更新個人班表。',
       empty:'本週與下週沒有你的班次，已切回新版排班月曆。',

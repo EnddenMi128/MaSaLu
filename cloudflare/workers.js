@@ -322,7 +322,8 @@ async function sendToGas(payload, env) {
   const response = await fetch(env.GAS_WEB_APP_URL, {
     method: 'POST',
     headers: {'content-type': 'application/json; charset=UTF-8'},
-    body: JSON.stringify({...payload, secret: env.GAS_SHARED_SECRET}),
+    body: JSON.stringify({...payload, channel: env.MASALU_CHANNEL === 'backup' ? 'backup' : 'primary',
+      secret: env.GAS_SHARED_SECRET}),
     redirect: 'follow'
   });
   if (!response.ok) throw new Error('GAS HTTP ' + response.status);

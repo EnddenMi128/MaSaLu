@@ -358,7 +358,7 @@ function doPost(e) {
     } else if (input.kind === 'vacancy') {
       result = masaluDeliverFollowup_(input,masaluVacancy_(input));
     } else if (input.kind === 'personal_calendar_menu') {
-      result = masaluDeliverFollowup_(input,masaluRefreshOwnCalendarMenu_(input.lineUid));
+      result = masaluDeliverFollowup_(input,masaluRefreshOwnCalendarMenu_(input.lineUid,input.channel));
     } else if (input.kind === 'enable_weekly_calendar_menu') {
       result = masaluDeliverFollowup_(input,masaluEnableWeeklyMenuFromLine_(input.lineUid));
     } else if (input.kind === 'manager_decision') {
@@ -634,6 +634,8 @@ function masaluPushWorkflowMessage_(uid, message, identity) {
 }
 
 function masaluDeliverFollowup_(input, result) {
+  // The backup Worker replies with its own channel token and reply token.
+  if (input.channel === 'backup') return result;
   if (!result.message || !input.eventId || !validLineUid_(input.lineUid)) return result;
   const message = {type:'text',text:result.message,...(result.quickReply?{quickReply:result.quickReply}:{})};
   if (!masaluPushWorkflowMessage_(input.lineUid,message,'shift-followup:'+input.eventId)) return result;

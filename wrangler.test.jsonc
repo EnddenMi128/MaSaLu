@@ -3,5 +3,6 @@
   "main": "cloudflare/workers.js",
   "compatibility_date": "2026-10-01",
   "workers_dev": true,
-  "keep_vars": true
+  "keep_vars": true,
+  "vars": {"MASALU_CHANNEL": "backup"}
 }
