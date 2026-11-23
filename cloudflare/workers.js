@@ -17,8 +17,15 @@ export default {
         signal:AbortSignal.timeout(8000)
       });
       const details=response.ok ? await response.json() : {};
+      const test=await fetch('https://api.line.me/v2/bot/channel/webhook/test',{
+        method:'POST',headers:{authorization:'Bearer '+env.LINE_CHANNEL_ACCESS_TOKEN,
+          'content-type':'application/json'},body:'{}',signal:AbortSignal.timeout(12000)
+      });
+      const testResult=test.ok ? await test.json() : {};
       return Response.json({lineStatus:response.status,active:details.active===true,
-        correctEndpoint:details.endpoint==='https://leader-shift-line-webhook-test.edn869728.workers.dev/webhook'},
+        correctEndpoint:details.endpoint==='https://leader-shift-line-webhook-test.edn869728.workers.dev/webhook',
+        testStatus:test.status,testSuccess:testResult.success===true,
+        webhookStatus:testResult.statusCode || null},
         {headers:{'cache-control':'no-store'}});
     }
     if (request.method !== 'POST' || url.pathname !== '/webhook') {
