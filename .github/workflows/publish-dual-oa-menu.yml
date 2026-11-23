@@ -1,0 +1,30 @@
+name: Publish MaSaLu dual OA rich menus once
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/publish-dual-oa-menu.yml
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Authenticate Apps Script CLI
+        env:
+          CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
+        shell: bash
+        run: |
+          test -n "$CLASPRC_JSON"
+          printf '%s' "$CLASPRC_JSON" > "$RUNNER_TEMP/.clasprc.json"
+          chmod 600 "$RUNNER_TEMP/.clasprc.json"
+          echo "clasp_config_auth=$RUNNER_TEMP/.clasprc.json" >> "$GITHUB_ENV"
+      - name: Publish current calendar in both LINE accounts
+        run: npx --yes @google/clasp@3.4.1 run-function masaluRefreshWeeklyCalendarRichMenu
