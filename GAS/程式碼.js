@@ -365,6 +365,12 @@ function doPost(e) {
         console.error('個人月曆選單更新失敗：'+(status || '設定或載入異常'));
         result = {ok:true,code:'menu_failed',message:'個人班表選單更新失敗'+(status?'（'+status+'）':'')+'，請稍後再試。'};
       }
+    } else if (input.kind === 'account_link_start') {
+      result = masaluAccountLinkStart_(input);
+    } else if (input.kind === 'account_link_employee_id') {
+      result = masaluAccountLinkEmployee_(input);
+    } else if (input.kind === 'account_link_follow') {
+      result = masaluAccountLinkFollow_(input);
     } else if (input.kind === 'enable_weekly_calendar_menu') {
       result = masaluDeliverFollowup_(input,masaluEnableWeeklyMenuFromLine_(input.lineUid));
     } else if (input.kind === 'manager_decision') {

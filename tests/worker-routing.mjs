@@ -152,6 +152,30 @@ test('second OA marks its GAS requests and replies with its own channel token', 
   } finally {globalThis.fetch=oldFetch;}
 });
 
+test('follow event and employee ID use the originating OA without asking for a code',async()=>{
+  const old=globalThis.fetch, kinds=[];
+  globalThis.fetch=async(url,init)=>{
+    if (url===env.GAS_WEB_APP_URL) {
+      const payload=JSON.parse(init.body);
+      kinds.push([payload.kind,payload.channel,payload.employeeId]);
+      return Response.json({ok:true,code:'linked',message:'已對應'});
+    }
+    return Response.json({});
+  };
+  try {
+    const source={type:'user',userId:bindingUid};
+    for (const event of [{type:'follow',source,replyToken:'follow-token'},
+      {type:'message',source,replyToken:'staff-token',message:{type:'text',text:'a03'}}]) {
+      const body=JSON.stringify({events:[event]});
+      const signature=createHmac('sha256',env.LINE_CHANNEL_SECRET).update(body).digest('base64');
+      assert.equal((await worker.fetch(new Request('https://worker.example/webhook',{
+        method:'POST',body,headers:{'x-line-signature':signature}}),env)).status,200);
+    }
+    assert.deepEqual(kinds,[['account_link_follow','primary',undefined],
+      ['account_link_employee_id','primary','A03']]);
+  } finally {globalThis.fetch=old;}
+});
+
 test('unrelated LINE text does not start a binding request', async () => {
   const oldFetch = globalThis.fetch;
   globalThis.fetch = async (url,init) => {
@@ -368,12 +392,13 @@ test('all rich menu shortcuts and new reply buttons reach their respective route
       method:'POST',body,headers:{'x-line-signature':signature}}),env);
     assert.equal(response.status,200);
     assert.deepEqual(calls.map(call=>[call.kind,call.choice || call.decision]),[
+      ['account_link_start',undefined],
       ['calendar_menu_action','contact'],['calendar_menu_action','leave'],['calendar_menu_action','replies'],
       ['vacancy','list'],['personal_calendar_menu',undefined],['leave_replacement','skip'],
       ['leave_replacement','select'],['calendar_menu_action','leave_pick'],
       ['calendar_menu_action','contact_reply'],['vacancy','reject'],['calendar_menu_action','reply_send']
     ]);
     assert.equal(receipts.length,routes.length);
-    assert.deepEqual(receipts[3].messages,[{type:'text',text:'現已滿班'}]);
+    assert.deepEqual(receipts[4].messages,[{type:'text',text:'現已滿班'}]);
   } finally {globalThis.fetch=old;}
 });

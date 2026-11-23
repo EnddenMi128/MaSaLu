@@ -179,12 +179,20 @@ async function handleEvent(event, env, ctx) {
   const lineUid = event.source.userId;
   const eventId = event.webhookEventId || '';
   if (event.type === 'follow') {
-    await replyLineSafe(event.replyToken,
-      '歡迎使用 MaSaLu 排班小幫手！\n請直接貼上團長提供的姓名和12碼綁定碼，例如：王小明 ABCDEF123456。\n已綁定者可直接開啟排班月曆。', env);
+    const result=await sendToGas({kind:'account_link_follow',lineUid,eventId},env);
+    if (event.replyToken && result.message) await replyLineSafe(event.replyToken,result.message,env);
+    return;
     return;
   }
   if (event.type === 'message' && event.message?.type === 'text') {
     const text = String(event.message.text || '').trim();
+    if (text === '帳號綁定') {
+      return handleFollowupEvent(event,{kind:'account_link_start',lineUid,eventId:eventId || event.message.id || ''},env);
+    }
+    if (/^A\d{2,3}$/i.test(text)) {
+      return handleFollowupEvent(event,{kind:'account_link_employee_id',lineUid,
+        employeeId:text.toUpperCase(),eventId:eventId || event.message.id || ''},env);
+    }
     if (text === '啟用月曆自動更新') {
       return handleFollowupEvent(event,{kind:'enable_weekly_calendar_menu',lineUid,eventId:eventId || event.message.id || ''},env);
     }

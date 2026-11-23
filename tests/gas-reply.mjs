@@ -10,6 +10,7 @@ const swapCode = await readFile(new URL('../GAS/ShiftSwap.js', import.meta.url),
 const menuActionsCode = await readFile(new URL('../GAS/CalendarMenuActions.js', import.meta.url), 'utf8');
 const richMenuCode = await readFile(new URL('../GAS/CalendarRichMenu.js', import.meta.url), 'utf8');
 const personalMenuCode = await readFile(new URL('../GAS/CalendarPersonalMenu.js', import.meta.url), 'utf8');
+const accountLinkCode = await readFile(new URL('../GAS/AccountLink.js', import.meta.url), 'utf8');
 const vacancyCode = await readFile(new URL('../GAS/Vacancy.js', import.meta.url), 'utf8');
 const uuid = '11111111-1111-1111-1111-111111111111';
 const uid = 'U'+'a'.repeat(32);
@@ -48,6 +49,7 @@ function harness({mockManagerNotice=true}={}) {
   vm.runInContext(menuActionsCode,ctx);
   vm.runInContext(richMenuCode,ctx);
   vm.runInContext(personalMenuCode,ctx);
+  vm.runInContext(accountLinkCode,ctx);
   vm.runInContext(vacancyCode,ctx);
   const ledger={getDataRange:()=>({getValues:()=>[vm.runInContext('MASALU_SERIAL_HEADERS',ctx),...serialRows]}),
     appendRow:values=>serialRows.push(Array.from(values))};
@@ -92,6 +94,31 @@ test('LINE binding requires the name and unused code from the same employee row'
   assert.equal(bind('測試員工 ABCDEF123456', managerUid).code, 'invalid_code');
   assert.equal(bind('測試人員FEDCBA654321', managerUid).code, 'bound');
   assert.deepEqual(rows[1].slice(2, 4), ['', managerUid]);
+});
+
+test('account linking checks existing UID and employee ID, then auto-registers backup follow',()=>{
+  const {ctx}=harness();
+  const saved=new Map();
+  saved.set('MASALU_BACKUP_LINE_CHANNEL_ACCESS_TOKEN','backup-token');
+  ctx.PropertiesService={getScriptProperties:()=>({
+    getProperty:key=>saved.get(key)||'',setProperty:(key,value)=>saved.set(key,value),
+    deleteProperty:key=>saved.delete(key)
+  })};
+  ctx.employeeIndex_=()=>({A03:{name:'團員甲',uid}});
+  const calls=[];
+  ctx.UrlFetchApp.fetch=(url,options)=>{
+    calls.push(url);
+    return {getResponseCode:()=>url.endsWith('/bot/info')?200:404,
+      getContentText:()=>JSON.stringify({basicId:'@masalu2'})};
+  };
+  assert.equal(ctx.masaluAccountLinkStart_({lineUid:uid,channel:'primary'}).code,'await_employee_id');
+  assert.equal(ctx.masaluAccountLinkEmployee_({lineUid:uid,channel:'primary',employeeId:'A02'}).code,'employee_mismatch');
+  const link=ctx.masaluAccountLinkEmployee_({lineUid:uid,channel:'primary',employeeId:'A03'});
+  assert.equal(link.code,'add_friend');
+  assert.match(link.message,/line\.me\/R\/ti\/p\/@masalu2/);
+  assert.deepEqual(calls,['https://api.line.me/v2/bot/profile/'+uid,'https://api.line.me/v2/bot/info']);
+  assert.equal(ctx.masaluAccountLinkFollow_({lineUid:uid,channel:'backup'}).code,'linked');
+  assert.equal(saved.get('MASALU_BACKUP_FRIEND_UIDS'),uid);
 });
 
 test('agree writes exact response, notifies managers once, repeated clicks are idempotent',()=>{
