@@ -1,0 +1,29 @@
+name: MaSaLu backup OA isolated test (no production deploy)
+
+on:
+  push:
+    branches:
+      - review/second-oa-fallback-20261122
+
+permissions:
+  contents: read
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Validate JavaScript syntax
+        run: |
+          node --check GAS/程式碼.js
+          node --check GAS/CalendarApi.js
+          node --check cloudflare/workers.js
+          node --check tests/backup-oa-safety.mjs
+      - name: Run all automated tests (no credentials)
+        run: node --test tests/*.mjs
+      - name: Validate HTML inline JavaScript
+        run: |
+          node -e 'const vm=require("node:vm");const fs=require("node:fs");const html=fs.readFileSync("index.html","utf8");for(const m of html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/g))new vm.Script(m[1]);'

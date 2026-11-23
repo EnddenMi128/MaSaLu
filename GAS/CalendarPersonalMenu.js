@@ -1,5 +1,5 @@
 /** The public template contains no employee data. All overlays are drawn here. */
-function masaluSyncPersonalMenus_(page, assets, token, properties, requestedUid) {
+function masaluSyncPersonalMenus_(page, assets, token, properties, requestedUid, propertyPrefix, eligibleUids) {
   const data = masaluLoad_();
   const calendar = masaluBootstrap_(data);
   const shifts = new Map(calendar.shifts.filter(shift => !shift.isOff).map(shift => [shift.id, shift.name]));
@@ -10,18 +10,19 @@ function masaluSyncPersonalMenus_(page, assets, token, properties, requestedUid)
   }
   const targets = new Map(employees.filter(person => person.id && counts.get(person.uid) === 1)
     .map(person => [person.uid, person.id]));
-  const prefix = 'MASALU_PERSONAL_MENU_';
+  const prefix = propertyPrefix || 'MASALU_PERSONAL_MENU_';
   let ownEntries = [];
   const saved = properties.getProperties();
   let template;
   let failures = 0;
   let failureStage = '';
   const users = requestedUid ? [requestedUid] :
-    new Set([...targets.keys(), ...Object.keys(saved).filter(key => key.startsWith(prefix)).map(key => key.slice(prefix.length))]);
+    new Set([...targets.keys()].filter(uid => !eligibleUids || eligibleUids.has(uid)).concat(
+      Object.keys(saved).filter(key => key.startsWith(prefix)).map(key => key.slice(prefix.length))));
   for (const uid of users) {
     if (!validLineUid_(uid)) continue;
     const key = prefix + uid;
-    const employeeId = targets.get(uid);
+    const employeeId = (!eligibleUids || eligibleUids.has(uid)) && targets.get(uid);
     let stage = '讀取個人班表';
     try {
       const entries = employeeId ? masaluPersonalRoster_(page,calendar,data,shifts,employeeId) : [];

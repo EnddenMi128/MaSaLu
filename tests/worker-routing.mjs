@@ -136,6 +136,22 @@ test('first binding replies to the originating LINE conversation when reply is a
   } finally { globalThis.fetch = oldFetch; }
 });
 
+test('second OA marks its GAS requests and replies with its own channel token', async () => {
+  const oldFetch=globalThis.fetch, calls=[];
+  const backupEnv={...env,MASALU_CHANNEL:'backup',LINE_CHANNEL_ACCESS_TOKEN:'backup-token'};
+  globalThis.fetch=async (url,init)=>{
+    calls.push({url,body:JSON.parse(init.body),authorization:init.headers.authorization});
+    return Response.json(url===env.GAS_WEB_APP_URL ? {ok:true,code:'empty',message:'個人班表已更新'} : {});
+  };
+  try {
+    const response=await worker.fetch(bindingWebhook('second-reply','更新個人班表'),backupEnv,
+      {waitUntil:promise=>promise});
+    assert.equal(response.status,200);
+    assert.equal(calls[0].body.channel,'backup');
+    assert.equal(calls[1].authorization,'Bearer backup-token');
+  } finally {globalThis.fetch=oldFetch;}
+});
+
 test('unrelated LINE text does not start a binding request', async () => {
   const oldFetch = globalThis.fetch;
   globalThis.fetch = async (url,init) => {

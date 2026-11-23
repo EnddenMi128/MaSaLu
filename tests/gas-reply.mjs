@@ -368,6 +368,7 @@ test('clear notification broadcasts to bound staff; non-clear only notifies remo
   const {h}=editHarness(), deliveries=[];
   const uid1='U'+'1'.repeat(32),uid2='U'+'2'.repeat(32);
   h.ctx.employeeIndex_=()=>({A01:{name:'團長',uid:uid1},A04:{name:'員工甲',uid:uid2},A05:{name:'未綁定',uid:''}});
+  h.ctx.PropertiesService={getScriptProperties:()=>({getProperty:key=>key==='LINE_CHANNEL_ACCESS_TOKEN'?'primary':''})};
   h.ctx.UrlFetchApp={fetch(_url,options){deliveries.push(JSON.parse(options.payload));return {getResponseCode:()=>200};}};
   const delta={date:'2026-11-05',clear:true,addedIds:[],removed:[{staffId:'A04',shift:'玉門'}]};
   const all=h.ctx.masaluNotifyCancellations_(delta);
@@ -380,6 +381,32 @@ test('clear notification broadcasts to bound staff; non-clear only notifies remo
   assert.equal(targeted.sent,1);
   assert.equal(deliveries[0].to,uid2);
   assert.equal(deliveries[0].messages[0].text,'班次已取消\n2026-11-05 ・ 玉門');
+});
+
+test('monthly quota switches only for a verified backup friend',()=>{
+  const {ctx}=harness(), sent=[];
+  ctx.PropertiesService={getScriptProperties:()=>({getProperty:key=>({
+    LINE_CHANNEL_ACCESS_TOKEN:'primary',
+    MASALU_BACKUP_LINE_CHANNEL_ACCESS_TOKEN:'backup',
+    MASALU_BACKUP_FRIEND_UIDS:uid,
+    MASALU_BACKUP_OA_ENABLED:'true'
+  })[key] || ''})};
+  ctx.UrlFetchApp={fetch(_url,options){
+    sent.push(options.headers.Authorization);
+    return options.headers.Authorization==='Bearer primary'
+      ? {getResponseCode:()=>429,getContentText:()=>JSON.stringify({message:'You have reached your monthly limit.'})}
+      : {getResponseCode:()=>200};
+  }};
+  const result=ctx.masaluPushWithQuotaFallback_(uid,[{type:'text',text:'測試'}]);
+  assert.equal(result.channel,'backup');
+  assert.deepEqual(sent,['Bearer primary','Bearer backup']);
+  sent.length=0;
+  ctx.PropertiesService={getScriptProperties:()=>({getProperty:key=>({
+    LINE_CHANNEL_ACCESS_TOKEN:'primary',
+    MASALU_BACKUP_LINE_CHANNEL_ACCESS_TOKEN:'backup'
+  })[key] || ''})};
+  assert.equal(ctx.masaluPushWithQuotaFallback_(uid,[{type:'text',text:'測試'}]).channel,'primary');
+  assert.deepEqual(sent,['Bearer primary']);
 });
 
 function replacementHarness(count=3) {
@@ -437,6 +464,40 @@ test('calendar refresh replaces an older default menu and verifies it is linked'
   h.ctx.masaluEnsureDefaultCalendarMenu_({},'','token');
   h.ctx.masaluEnsureDefaultCalendarMenu_({},'','token');
   assert.deepEqual(calls,[['user/all/richmenu/new-menu','post']]);
+});
+
+test('calendar publication uses each OA token and isolates personal menu state',()=>{
+  const {ctx}=harness(), calls=[];
+  const page={start:'2026-11-22',end:'2026-12-05'};
+  ctx.masaluCalendarMenuSettings_=()=>({properties:{},assets:'',page,channels:[
+    {name:'primary',token:'primary-token',prefix:'MASALU_PERSONAL_MENU_'},
+    {name:'backup',token:'backup-token',prefix:'MASALU_BACKUP_PERSONAL_MENU_',uids:new Set([uid])}
+  ]});
+  ctx.masaluEnsureDefaultCalendarMenu_=(p,a,token)=>calls.push(['default',token]);
+  ctx.masaluSyncPersonalMenus_=(p,a,token,props,requested,prefix,uids)=>{
+    calls.push(['personal',token,prefix,uids?.has(uid) || false]);
+    return 0;
+  };
+  assert.equal(ctx.masaluUpdateCalendarRichMenu_(true).failures,0);
+  assert.deepEqual(calls,[
+    ['default','primary-token'],['personal','primary-token','MASALU_PERSONAL_MENU_',false],
+    ['default','backup-token'],['personal','backup-token','MASALU_BACKUP_PERSONAL_MENU_',true]
+  ]);
+});
+
+test('backup menu refresh stays on the backup OA and replies through its Worker',()=>{
+  const {ctx}=harness();
+  const calls=[];
+  ctx.masaluCalendarMenuSettings_=()=>({properties:{},assets:'',page:{start:'2026-11-22',end:'2026-12-05'},
+    channels:[{name:'primary',token:'primary-token',prefix:'MASALU_PERSONAL_MENU_'},
+      {name:'backup',token:'backup-token',prefix:'MASALU_BACKUP_PERSONAL_MENU_',uids:new Set([uid])}]});
+  ctx.masaluEnsureDefaultCalendarMenu_=(p,a,token)=>calls.push(token);
+  ctx.masaluSyncPersonalMenus_=(p,a,token)=>{calls.push(token);return {status:'empty',entries:[]};};
+  const result=ctx.masaluRefreshOwnCalendarMenu_(uid,'backup');
+  assert.equal(result.code,'empty');
+  assert.deepEqual(calls,['backup-token','backup-token']);
+  assert.equal(ctx.masaluDeliverFollowup_({channel:'backup',lineUid:uid,eventId:'event'},result),result);
+  assert.equal(ctx.masaluRefreshOwnCalendarMenu_(managerUid,'backup').code,'menu_unbound');
 });
 
 test('replacement picker paginates within LINE limits and handles empty/cancel',()=>{
