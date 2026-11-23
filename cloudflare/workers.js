@@ -307,6 +307,9 @@ async function handleEvent(event, env, ctx) {
 }
 __name(handleEvent, "handleEvent");
 async function handleFollowupEvent(event, payload, env) {
+  if (payload.kind === "personal_calendar_menu" || payload.kind === "enable_weekly_calendar_menu") {
+    await showCalendarLoading(payload.lineUid, env);
+  }
   const result = await sendToGas(payload, env);
   if (result.delivered || !result.message) return;
   if (!await replyLineSafe(event.replyToken, result.message, env, result.quickReply)) {
@@ -314,6 +317,18 @@ async function handleFollowupEvent(event, payload, env) {
   }
 }
 __name(handleFollowupEvent, "handleFollowupEvent");
+// The existing rich menu remains linked until a replacement is uploaded successfully.
+// Loading uses the originating OA token and never consumes the reply token.
+async function showCalendarLoading(lineUid, env) {
+  try {
+    await fetch("https://api.line.me/v2/bot/chat/loading/start", {
+      method: "POST",
+      headers: {"content-type":"application/json", authorization:"Bearer "+env.LINE_CHANNEL_ACCESS_TOKEN},
+      body: JSON.stringify({chatId:lineUid,loadingSeconds:60}),
+      signal: AbortSignal.timeout(3000)
+    });
+  } catch (_) { /* Optional indicator must never block a menu refresh. */ }
+}
 async function handleBindingMessage(replyToken, lineUid, text, eventId, env) {
   const result = await sendToGas({ kind: "bind_or_message", lineUid, text, eventId }, env);
   const replied = await replyLineSafe(replyToken, result.message, env);

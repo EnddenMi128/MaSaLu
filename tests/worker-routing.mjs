@@ -147,8 +147,11 @@ test('second OA marks its GAS requests and replies with its own channel token', 
     const response=await worker.fetch(bindingWebhook('second-reply','更新個人班表'),backupEnv,
       {waitUntil:promise=>promise});
     assert.equal(response.status,200);
-    assert.equal(calls[0].body.channel,'backup');
-    assert.equal(calls[1].authorization,'Bearer backup-token');
+    assert.equal(calls[0].url,'https://api.line.me/v2/bot/chat/loading/start');
+    assert.equal(calls[0].body.loadingSeconds,60);
+    assert.equal(calls[0].authorization,'Bearer backup-token');
+    assert.equal(calls[1].body.channel,'backup');
+    assert.equal(calls[2].authorization,'Bearer backup-token');
   } finally {globalThis.fetch=oldFetch;}
 });
 
@@ -156,7 +159,8 @@ test('follow event and employee ID use the originating OA without asking for a c
   const old=globalThis.fetch, kinds=[];
   globalThis.fetch=async(url,init)=>{
     if (url===env.GAS_WEB_APP_URL) {
-      const payload=JSON.parse(init.body);
+      if(url==='https://api.line.me/v2/bot/chat/loading/start') return Response.json({});
+    const payload=JSON.parse(init.body);
       kinds.push([payload.kind,payload.channel,payload.employeeId]);
       return Response.json({ok:true,code:'linked',message:'已對應'});
     }
@@ -378,6 +382,7 @@ test('all rich menu shortcuts and new reply buttons reach their respective route
   const signature=createHmac('sha256',env.LINE_CHANNEL_SECRET).update(body).digest('base64');
   const old=globalThis.fetch, calls=[], receipts=[];
   globalThis.fetch=async(url,init)=>{
+    if(url==='https://api.line.me/v2/bot/chat/loading/start') return Response.json({});
     const payload=JSON.parse(init.body);
     if (url===env.GAS_WEB_APP_URL) {
       calls.push(payload);
@@ -401,4 +406,19 @@ test('all rich menu shortcuts and new reply buttons reach their respective route
     assert.equal(receipts.length,routes.length);
     assert.deepEqual(receipts[4].messages,[{type:'text',text:'現已滿班'}]);
   } finally {globalThis.fetch=old;}
+});
+
+
+test('unavailable loading indicator never prevents rich menu refresh or final reply',async()=>{
+  const old=globalThis.fetch,calls=[];
+  globalThis.fetch=async(url,init)=>{
+    calls.push(url);
+    if(url.endsWith('/loading/start')) throw Error('loading unavailable');
+    if(url===env.GAS_WEB_APP_URL) return Response.json({ok:true,code:'linked',message:'個人班表已更新'});
+    return Response.json({});
+  };
+  try {
+    assert.equal((await worker.fetch(bindingWebhook('reply','更新個人班表'),env)).status,200);
+    assert.deepEqual(calls,['https://api.line.me/v2/bot/chat/loading/start',env.GAS_WEB_APP_URL,'https://api.line.me/v2/bot/message/reply']);
+  }finally{globalThis.fetch=old;}
 });

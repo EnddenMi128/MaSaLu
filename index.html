@@ -123,6 +123,11 @@ input{width:100%;min-width:0;border:1px solid #e2e5ea;border-radius:11px;padding
 .toast{position:fixed;z-index:40;left:10px;right:10px;bottom:calc(78px + env(safe-area-inset-bottom));display:none;background:#111827;color:#fff;border-radius:11px;padding:11px 14px;font-size:14px;white-space:normal;overflow-wrap:anywhere;line-height:1.5}
 .loading{position:fixed;inset:0;z-index:50;background:rgba(246,247,251,.82);display:none;align-items:center;justify-content:center;font-weight:900}
 .loading.show{display:flex}
+.sync-notice{display:flex;align-items:center;gap:8px;padding:9px 12px;margin:0 0 10px;background:#eef2ff;color:#4338ca;border-radius:12px;font-size:13px}
+.sync-notice[hidden]{display:none}
+.sync-spinner{width:14px;height:14px;border:2px solid #c7d2fe;border-top-color:#4338ca;border-radius:50%;animation:sync-spin .8s linear infinite;flex-shrink:0}
+@keyframes sync-spin{to{transform:rotate(360deg)}}
+@media(prefers-reduced-motion:reduce){.sync-spinner{animation:none}}
 @media(min-width:540px){
   .shift-mini-people{grid-template-columns:repeat(auto-fill,minmax(16px,1fr))}
 }
@@ -156,6 +161,7 @@ input{width:100%;min-width:0;border:1px solid #e2e5ea;border-radius:11px;padding
     </div>
   </div>
 
+  <div id="syncNotice" class="sync-notice" role="status" aria-live="polite" hidden><span class="sync-spinner" aria-hidden="true"></span><span>正在加載中…原有月曆會保留，完成後自動更新。</span></div>
   <section class="calendar-card">
     <div class="cal-head">
       <div class="month-title" id="monthTitle"></div>
@@ -398,14 +404,16 @@ function applyBootstrap(res,cached=false){
   $('#editBtn').hidden=!manager;
   $('#appName').title=manager?'排班管理員':'個人排班';
   $('#appName').textContent=state.settings.app_name||'MASALU';
-  $('#statusText').textContent=`${manager&&!state.viewer?.personal?'管理月曆':'個人月曆'} · ${state.viewer?.name||''} · ${cached?'快取預覽，正在同步':'已同步'}`;
+  $('#statusText').textContent=`${manager&&!state.viewer?.personal?'管理月曆':'個人月曆'} · ${state.viewer?.name||''} · ${cached?'快取預覽 · 正在加載中…':'已同步'}`;
   renderCalendar();
   renderDetail();
 }
 async function loadBootstrap(){
   $('#reloadBtn').disabled=true;
-  $('#statusText').textContent='正在讀取排班…';
-  let hadCache=false;
+  $('#syncNotice').hidden=false;
+  $('#calendar').setAttribute('aria-busy','true');
+  $('#statusText').textContent='正在加載中…';
+  let hadCache=Boolean(state.viewer);
   try{
     const token=await ensureLineIdentity();
     const nfcParams=new URLSearchParams(location.search);
@@ -426,7 +434,7 @@ async function loadBootstrap(){
     try{
       cacheKey=await bootstrapCacheKey(token);
       const entry=JSON.parse(sessionStorage.getItem(cacheKey)||'null');
-      if(entry?.savedAt && Date.now()-entry.savedAt<BOOT_CACHE_MS && entry.data?.ok && entry.data?.viewer){
+      if(entry?.savedAt && entry.savedAt<=Date.now() && entry.data?.ok && entry.data?.viewer){
         applyBootstrap(entry.data,true);
         hadCache=true;
       }
@@ -459,6 +467,8 @@ async function loadBootstrap(){
     toast(err.message);
   }finally{
     $('#reloadBtn').disabled=false;
+    $('#syncNotice').hidden=true;
+    $('#calendar').setAttribute('aria-busy','false');
   }
 }
 
