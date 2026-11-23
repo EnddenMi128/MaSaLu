@@ -740,7 +740,9 @@ test('contact sends only messages in the active conversation to the three manage
   h.ctx.employeeIndex_=()=>roster;
   const run=fields=>h.ctx.handleShiftFollowup_({...h.input,...fields});
   const text={kind:'contact_message',text:'請問幾點集合？',eventId:'msg-1'};
-  assert.equal(run({...text,timestamp:1}).code,'ignored');
+  const help=run({...text,timestamp:1});
+  assert.equal(help.code,'help');
+  assert.match(help.message,/個人班表/);
   const start=run({choice:'contact',timestamp:2});
   assert.equal(start.code,'contact_open');
   assert.deepEqual(Array.from(start.quickReply.items,item=>item.action.label),['輸入訊息','結束對話']);
