@@ -1,0 +1,50 @@
+name: Diagnose secondary LINE OA webhook safely
+
+on:
+  push:
+    branches:
+      - review/second-oa-fallback-20261122
+    paths:
+      - .github/workflows/diagnose-second-oa-webhook.yml
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check test Worker health and webhook prerequisites without credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          url='https://leader-shift-line-webhook-test.edn869728.workers.dev'
+          health=$(curl -sS --max-time 12 -o /dev/null -w '%{http_code}' "$url/health")
+          echo "GET /health HTTP $health"
+          if [[ "$health" != "200" ]]; then
+            echo "::error::Test Worker health is not responding 200."
+            exit 1
+          fi
+          # Deliberately no LINE signature and no real event.
+          # With all 4 Worker secrets present, server must return 401.
+          # Missing any required Worker secret returns 503 before signature verification.
+          webhook=$(curl -sS --max-time 12 -o /dev/null -w '%{http_code}' -X POST -H 'content-type: application/json' --data '{"events":[]}' "$url/webhook")
+          echo "POST /webhook (unsigned empty probe) HTTP $webhook"
+          case "$webhook" in
+            401)
+              echo "PASS: Worker has passed required-env gate; unsigned request correctly rejected."
+              echo "This does not prove SECOND OA channel secret matches LINE, only that four nonempty settings are present."
+              ;;
+            503)
+              echo "::error::At least one required Worker environment setting is missing: LINE_CHANNEL_SECRET, LINE_CHANNEL_ACCESS_TOKEN, GAS_SHARED_SECRET, GAS_WEB_APP_URL."
+              exit 1
+              ;;
+            404)
+              echo "::error::Wrong Worker/route; check URL ends in /webhook."
+              exit 1
+              ;;
+            *)
+              echo "::error::Unexpected HTTP status: $webhook; check Cloudflare Worker logs."
+              exit 1
+              ;;
+          esac
