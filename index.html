@@ -380,7 +380,7 @@ function gasCall(action, payload = {}, timeoutMs = 15000){
 /** Session-only preview: names and manager schedules are never shared across LINE identities. */
 async function bootstrapCacheKey(token){
   const digest=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(token));
-  activeCacheKey='masalu:v2:'+Array.from(new Uint8Array(digest)).slice(0,16)
+  activeCacheKey='masalu:v3:'+new URLSearchParams(location.search).get('view')+':'+Array.from(new Uint8Array(digest)).slice(0,16)
     .map(n=>n.toString(16).padStart(2,'0')).join('');
   return activeCacheKey;
 }
@@ -398,7 +398,7 @@ function applyBootstrap(res,cached=false){
   $('#editBtn').hidden=!manager;
   $('#appName').title=manager?'排班管理員':'個人排班';
   $('#appName').textContent=state.settings.app_name||'MASALU';
-  $('#statusText').textContent=`${manager?'管理月曆':'個人月曆'} · ${state.viewer?.name||''} · ${cached?'快取預覽，正在同步':'已同步'}`;
+  $('#statusText').textContent=`${manager&&!state.viewer?.personal?'管理月曆':'個人月曆'} · ${state.viewer?.name||''} · ${cached?'快取預覽，正在同步':'已同步'}`;
   renderCalendar();
   renderDetail();
 }
@@ -408,8 +408,20 @@ async function loadBootstrap(){
   let hadCache=false;
   try{
     const token=await ensureLineIdentity();
+    const nfcParams=new URLSearchParams(location.search);
+    const liffState=new URLSearchParams((nfcParams.get('liff.state')||'').replace(/^\/?\?/,''));
+    const nfcEmployee=nfcParams.get('emp')||liffState.get('emp');
+    if(nfcEmployee){
+      $('#statusText').textContent='正在確認 NFC 員工綁定…';
+      const binding=await gasCall('nfcBind',{employeeId:nfcEmployee});
+      forgetBootstrapCache();
+      toast(binding.message);
+      // Remain on the authenticated calendar; remove the one-time NFC instruction.
+      nfcParams.delete('emp');nfcParams.delete('liff.state');nfcParams.set('view','personal');
+      history.replaceState(null,'',location.pathname+(nfcParams.size?'?'+nfcParams:'')+location.hash);
+    }
     selectLinkedDate();
-    const fresh=gasCall('bootstrap').then(data=>({data}),error=>({error}));
+    const fresh=gasCall('bootstrap',{view:new URLSearchParams(location.search).get('view')}).then(data=>({data}),error=>({error}));
     let cacheKey;
     try{
       cacheKey=await bootstrapCacheKey(token);

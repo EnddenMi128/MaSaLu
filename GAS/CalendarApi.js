@@ -109,12 +109,16 @@ function masaluEmployeeCalendar_(calendar, data, employeeId) {
 /** Every calendar request uses a LINE token verified against the Login channel. */
 function masaluApi(action,payload,lineAccessToken) {
   try {
+    if(action==='nfcBind') return masaluNfcBind_(payload,lineAccessToken);
     const viewer=masaluViewer_(lineAccessToken);
     if(!viewer) return {ok:false,code:'unauthorized',error:'找不到此 LINE 帳號的員工綁定，請確認使用同一個 LINE 帳號'};
     if(action==='bootstrap') {
       const data=masaluLoad_();
       const calendar=masaluBootstrap_(data);
-      if(!viewer.manager) masaluEmployeeCalendar_(calendar,data,viewer.id);
+      if(!viewer.manager || payload && payload.view==='personal') {
+        masaluEmployeeCalendar_(calendar,data,viewer.id);
+        viewer.personal=true;
+      }
       return Object.assign(calendar,{viewer});
     }
     if(action==='managerSession') return viewer.manager ? {ok:true,manager:viewer} : {ok:false,code:'unauthorized',error:'只有 A01–A03 管理員可以編輯排班'};
@@ -231,7 +235,7 @@ function masaluSettings_(data,action,p) {
 }
 
 /** Verify LINE token, read the user profile, then resolve one bound employee. */
-function masaluViewer_(accessToken) {
+function masaluVerifiedLineProfile_(accessToken) {
   const token=String(accessToken||'').trim();
   if(!token || token.length>4096) return null;
   const channel=PropertiesService.getScriptProperties().getProperty('MASALU_LINE_LOGIN_CHANNEL_ID') || '2010020470';
@@ -245,11 +249,17 @@ function masaluViewer_(accessToken) {
     if(String(verified.client_id)!==channel || !(Number(verified.expires_in)>0)) return null;
     const profile=JSON.parse(response.getContentText());
     if(!validLineUid_(String(profile.userId||''))) return null;
-    const matches=masaluTable_(SHIFT_APP.EMPLOYEES,SHIFT_APP.EMP_HEADERS).rows.filter(r=>String(r[3]||'').trim()===profile.userId);
-    if(matches.length!==1) return null;
-    const id=String(matches[0][0]||'').trim().toUpperCase();
-    return {id:id,name:String(matches[0][1]||''),manager:['A01','A02','A03'].includes(id)};
+    return profile;
   } catch(err) { return null; }
+}
+
+function masaluViewer_(accessToken) {
+  const profile=masaluVerifiedLineProfile_(accessToken);
+  if(!profile) return null;
+  const matches=masaluTable_(SHIFT_APP.EMPLOYEES,SHIFT_APP.EMP_HEADERS).rows.filter(r=>String(r[3]||'').trim()===profile.userId);
+  if(matches.length!==1) return null;
+  const id=String(matches[0][0]||'').trim().toUpperCase();
+  return {id,name:String(matches[0][1]||''),manager:['A01','A02','A03'].includes(id)};
 }
 
 function masaluManager_(accessToken) {

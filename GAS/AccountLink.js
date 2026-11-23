@@ -74,3 +74,64 @@ function masaluRememberBackupFriend_(uid) {
     }
   } finally { lock.releaseLock(); }
 }
+
+/** NFC employee IDs are enrollment instructions, not proof of employee identity.
+ * Only an empty roster UID can be enrolled; an existing UID is never replaced.
+ * LINE token verification always precedes roster access and mutations.
+ */
+function masaluNfcBind_(payload, accessToken) {
+  const profile=masaluVerifiedLineProfile_(accessToken);
+  if(!profile) return {ok:false,code:'unauthorized',error:'LINE 登入驗證失敗，請重新開啟'};
+  const employeeId=String(payload && payload.employeeId || '').trim().toUpperCase();
+  if(!/^A\d{2,3}$/.test(employeeId)) return {ok:false,error:'NFC 工號格式錯誤'};
+  const uid=profile.userId,lock=LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    const table=masaluTable_(SHIFT_APP.EMPLOYEES,SHIFT_APP.EMP_HEADERS);
+    const own=table.rows.filter(r=>String(r[3]||'').trim()===uid);
+    if(own.length>1) return {ok:false,error:'此 LINE 有重複綁定，請聯絡管理員'};
+    // An enrolled user always opens their own calendar, even on another NFC tag.
+    if(own.length===1) {
+      const ownId=String(own[0][0]).trim().toUpperCase();
+      const notices=masaluNfcNotices_(ownId,uid,String(own[0][1]||''),false);
+      return {ok:true,code:'already_bound',message:'已開啟個人月曆',employeeId:ownId,notifications:notices};
+    }
+    const matches=table.rows.map((row,i)=>({row,i})).filter(x=>String(x.row[0]).trim().toUpperCase()===employeeId);
+    if(matches.length!==1) return {ok:false,error:'找不到唯一員工工號，請聯絡管理員'};
+    const target=matches[0];
+    if(String(target.row[3]||'').trim()) return {ok:false,code:'binding_conflict',error:'此工號已綁定其他 LINE，請聯絡管理員'};
+    table.sheet.getRange(target.i+2,4,1,2).setValues([[uid,new Date()]]);
+    SpreadsheetApp.flush();
+    const notices=masaluNfcNotices_(employeeId,uid,String(target.row[1]||''),true);
+    safeLog_('NFC綁定','',employeeId,'成功','LINE 身分驗證完成','');
+    return {ok:true,code:'bound',employeeId,message:'綁定成功，已開啟個人月曆'+(notices.failed?'；部分 LINE 通知待重試':''),notifications:notices};
+  } finally { lock.releaseLock(); }
+}
+
+/** Persist each recipient separately; deterministic LINE retry keys handle lost responses. */
+function masaluNfcNotices_(id,uid,name,create) {
+  const props=PropertiesService.getScriptProperties(),key='MASALU_NFC_NOTICE_'+id+'_'+uid;
+  let record;
+  try { record=JSON.parse(props.getProperty(key)||'null'); } catch(_) {}
+  if(!record && !create) return {sent:0,failed:0};
+  if(!record) {
+    const roster=employeeIndex_();
+    const targets=[{uid,text:name+'（'+id+'）LINE 綁定成功！個人月曆：https://liff.line.me/2010020470-VBPZRUQ9?view=personal'}];
+    ['A01','A02','A03'].forEach(manager=>{
+      if(roster[manager] && validLineUid_(roster[manager].uid)) targets.push({uid:roster[manager].uid,text:'NFC 綁定通知：'+name+'（'+id+'）已完成 LINE 綁定。'});
+    });
+    record={targets,done:[]};
+    props.setProperty(key,JSON.stringify(record));
+  }
+  let sent=0,failed=0;
+  record.targets.forEach((target,i)=>{
+    if(record.done.includes(i)) return;
+    try {
+      const response=masaluPushWithQuotaFallback_(target.uid,[{type:'text',text:target.text}],'nfc:'+id+':'+uid+':'+i).response;
+      const status=response.getResponseCode();
+      if(!(status>=200 && status<300 || status===409 && masaluLineRetryAccepted_(response))) throw new Error('LINE notification failed');
+      record.done.push(i);props.setProperty(key,JSON.stringify(record));sent++;
+    } catch(_) { failed++; }
+  });
+  return {sent,failed};
+}
