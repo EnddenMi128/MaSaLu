@@ -135,3 +135,23 @@ jobs:
       - name: Check live health endpoint
         run: curl --fail --silent --show-error --retry 3 --retry-delay 2 https://leader-shift-line-webhook.edn869728.workers.dev/health
 
+  deploy-backup-worker:
+    name: Update existing second LINE OA Worker
+    needs: deploy-worker
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Confirm isolated Worker target
+        run: |
+          node -e 'const fs=require("node:fs");const c=JSON.parse(fs.readFileSync("wrangler.test.jsonc","utf8"));if(c.name!=="leader-shift-line-webhook-test"||c.main!=="cloudflare/workers.js"||c.keep_vars!==true||c.vars?.MASALU_CHANNEL!=="backup")process.exit(1)'
+      - name: Deploy second OA Worker and preserve Dashboard secrets
+        run: npx --yes wrangler@4 deploy --config wrangler.test.jsonc --keep-vars
+      - name: Check second OA health endpoint
+        run: curl --fail --silent --show-error --retry 3 --retry-delay 2 https://leader-shift-line-webhook-test.edn869728.workers.dev/health
+

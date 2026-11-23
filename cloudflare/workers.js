@@ -11,6 +11,16 @@ export default {
     if (request.method === 'GET' && url.pathname === '/health') {
       return new Response('ok', {status: 200, headers: {'content-type': 'text/plain; charset=utf-8'}});
     }
+    if (request.method === 'GET' && url.pathname === '/diagnose-backup-webhook' && env.MASALU_CHANNEL === 'backup') {
+      const response=await fetch('https://api.line.me/v2/bot/channel/webhook/endpoint',{
+        headers:{authorization:'Bearer '+env.LINE_CHANNEL_ACCESS_TOKEN},
+        signal:AbortSignal.timeout(8000)
+      });
+      const details=response.ok ? await response.json() : {};
+      return Response.json({lineStatus:response.status,active:details.active===true,
+        correctEndpoint:details.endpoint==='https://leader-shift-line-webhook-test.edn869728.workers.dev/webhook'},
+        {headers:{'cache-control':'no-store'}});
+    }
     if (request.method !== 'POST' || url.pathname !== '/webhook') {
       return new Response('Not found', {status: 404});
     }
