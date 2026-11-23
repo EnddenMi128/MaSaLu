@@ -2,7 +2,7 @@
 function masaluPublishCalendarRichMenu() {
   const page = masaluUpdateCalendarRichMenu_(true);
   const result = page.failures ? '，有 '+page.failures+' 個個人選單待重試。' : '。';
-  SpreadsheetApp.getUi().alert(page.start+' 至 '+page.end+' 排班月曆圖文選單已發布'+result);
+  show_(page.start+' 至 '+page.end+' 排班月曆圖文選單已發布'+result);
 }
 
 function masaluEnableWeeklyCalendarRichMenu() {
