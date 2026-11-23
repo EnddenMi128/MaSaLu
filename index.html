@@ -446,7 +446,8 @@ async function loadBootstrap(){
     if(params.get('open')==='add-staff' && !openedLinkedStaffForm){
       openedLinkedStaffForm=true;
       if(state.viewer?.manager){
-        openEditor();
+        await openEditor();
+        if(!$('#sheetwrap').classList.contains('show')) return;
         $('[data-mode="settings"]').click();
         requestAnimationFrame(()=>$('#addStaffForm').scrollIntoView({block:'center'}));
       }else toast('只有 A01–A03 管理員可以新增人員');
@@ -618,8 +619,20 @@ function makeDraft(){
   return draft;
 }
 
-function openEditor(){
+async function openEditor(){
   if(!state.viewer?.manager){toast('只有 A01–A03 管理員可以編輯排班');return;}
+  // Personal calendars contain a filtered roster. Reload the full manager calendar
+  // before editing so an unseen assignment can never be removed by a partial draft.
+  if(state.viewer.personal){
+    $('#syncNotice').hidden=false;
+    try {
+      const full=await gasCall('bootstrap',{});
+      applyBootstrap(full,false);
+      const params=new URLSearchParams(location.search);params.delete('view');
+      history.replaceState(null,'',location.pathname+(params.size?'?'+params:'')+location.hash);
+    }catch(error){toast(error.message);return;}
+    finally{$('#syncNotice').hidden=true;}
+  }
   state.draft=makeDraft();
   const d=dateFromKey(selected);
   $('#sheetTitle').textContent=`${d.getMonth()+1}/${d.getDate()} 編輯排班`;
