@@ -6,6 +6,8 @@ on:
       - review/second-oa-fallback-20261122
     paths:
       - .github/workflows/deploy-second-oa-test.yml
+      - cloudflare/workers.js
+      - wrangler.test.jsonc
 
 permissions:
   contents: read
