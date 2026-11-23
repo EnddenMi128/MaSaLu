@@ -171,7 +171,8 @@ function masaluCalendarRichMenuRequest_(path,token,method,payload,allowedStatus)
   });
   const status = response.getResponseCode();
   if (status < 200 || status >= 300) {
-    if (status !== allowedStatus) throw new Error('LINE 圖文選單設定失敗，HTTP '+status+'（'+path+'）');
+    const allowed = Array.isArray(allowedStatus) ? allowedStatus : [allowedStatus];
+    if (!allowed.includes(status)) throw new Error('LINE 圖文選單設定失敗，HTTP '+status+'（'+path+'）');
   }
   return response;
 }

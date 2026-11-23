@@ -9,6 +9,7 @@ const calendarCode = await readFile(new URL('../GAS/CalendarApi.js', import.meta
 const swapCode = await readFile(new URL('../GAS/ShiftSwap.js', import.meta.url), 'utf8');
 const menuActionsCode = await readFile(new URL('../GAS/CalendarMenuActions.js', import.meta.url), 'utf8');
 const richMenuCode = await readFile(new URL('../GAS/CalendarRichMenu.js', import.meta.url), 'utf8');
+const personalMenuCode = await readFile(new URL('../GAS/CalendarPersonalMenu.js', import.meta.url), 'utf8');
 const vacancyCode = await readFile(new URL('../GAS/Vacancy.js', import.meta.url), 'utf8');
 const uuid = '11111111-1111-1111-1111-111111111111';
 const uid = 'U'+'a'.repeat(32);
@@ -46,6 +47,7 @@ function harness({mockManagerNotice=true}={}) {
   vm.runInContext(swapCode,ctx);
   vm.runInContext(menuActionsCode,ctx);
   vm.runInContext(richMenuCode,ctx);
+  vm.runInContext(personalMenuCode,ctx);
   vm.runInContext(vacancyCode,ctx);
   const ledger={getDataRange:()=>({getValues:()=>[vm.runInContext('MASALU_SERIAL_HEADERS',ctx),...serialRows]}),
     appendRow:values=>serialRows.push(Array.from(values))};
@@ -464,6 +466,22 @@ test('calendar refresh replaces an older default menu and verifies it is linked'
   h.ctx.masaluEnsureDefaultCalendarMenu_({},'','token');
   h.ctx.masaluEnsureDefaultCalendarMenu_({},'','token');
   assert.deepEqual(calls,[['user/all/richmenu/new-menu','post']]);
+});
+
+test('a default menu from LINE Official Account Manager does not block API publication',()=>{
+  const {ctx}=harness();
+  const calls=[];
+  let linked=false;
+  ctx.masaluPrepareCalendarRichMenu_=()=> 'new-menu';
+  ctx.masaluCalendarRichMenuRequest_=(path,token,method,payload,allowed)=>{
+    calls.push({path,method,allowed});
+    if (method==='post') linked=true;
+    return {getResponseCode:()=>linked?200:403,
+      getContentText:()=>JSON.stringify({richMenuId:'new-menu'})};
+  };
+  ctx.masaluEnsureDefaultCalendarMenu_({},'','backup-token');
+  assert.equal(calls.filter(call=>call.method==='post').length,1);
+  assert.deepEqual(Array.from(calls[0].allowed),[403,404]);
 });
 
 test('calendar publication uses each OA token and isolates personal menu state',()=>{

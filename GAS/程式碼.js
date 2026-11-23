@@ -358,7 +358,13 @@ function doPost(e) {
     } else if (input.kind === 'vacancy') {
       result = masaluDeliverFollowup_(input,masaluVacancy_(input));
     } else if (input.kind === 'personal_calendar_menu') {
-      result = masaluDeliverFollowup_(input,masaluRefreshOwnCalendarMenu_(input.lineUid,input.channel));
+      try {
+        result = masaluDeliverFollowup_(input,masaluRefreshOwnCalendarMenu_(input.lineUid,input.channel));
+      } catch (error) {
+        const status = String(error.message || '').match(/HTTP \d+/)?.[0];
+        console.error('個人月曆選單更新失敗：'+(status || '設定或載入異常'));
+        result = {ok:true,code:'menu_failed',message:'個人班表選單更新失敗'+(status?'（'+status+'）':'')+'，請稍後再試。'};
+      }
     } else if (input.kind === 'enable_weekly_calendar_menu') {
       result = masaluDeliverFollowup_(input,masaluEnableWeeklyMenuFromLine_(input.lineUid));
     } else if (input.kind === 'manager_decision') {

@@ -178,7 +178,8 @@ function masaluPersonalRoster_(page, calendar, data, shifts, employeeId) {
 }
 
 function masaluCalendarMenuLinked_(userPath,id,token) {
-  const response = masaluCalendarRichMenuRequest_(userPath,token,'get',null,404);
+  const allowed = userPath === 'user/all/richmenu' ? [403,404] : 404;
+  const response = masaluCalendarRichMenuRequest_(userPath,token,'get',null,allowed);
   return response.getResponseCode() === 200 && JSON.parse(response.getContentText()).richMenuId === id;
 }
 
