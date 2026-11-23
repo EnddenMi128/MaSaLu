@@ -717,7 +717,9 @@ function handleShiftFollowup_(input) {
     note = match[2].trim();
   }
 
-  if (input.kind === 'contact_message' && !CacheService.getScriptCache().get(chatKey)) return {ok:true,code:'ignored'};
+  if (input.kind === 'contact_message' && !CacheService.getScriptCache().get(chatKey)) {
+    return {ok:true,code:'help',message:'可輸入「個人班表」、「缺班查詢」或「我的UID」。要留言給團長，請先點「聯絡團員」。'};
+  }
   const lock = LockService.getScriptLock();
   lock.waitLock(20000);
   try {
