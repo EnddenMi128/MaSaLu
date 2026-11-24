@@ -51,9 +51,11 @@ test('other commands still route to GAS rather than revealing UID',async()=>{
   try{
     const r=await worker.fetch(signedRequest('個人班表'),env);
     assert.equal(r.status,200);
-    assert.equal(seen[0].url,env.GAS_WEB_APP_URL);
-    assert.equal(seen[0].body.kind,'personal_calendar_menu');
-    assert.equal(seen[0].body.channel,'backup');
-    assert.equal(seen[1].url,'https://api.line.me/v2/bot/message/reply');
+    const gasCall=seen.find(x=>x.url===env.GAS_WEB_APP_URL);
+    const replyCall=seen.find(x=>x.url==='https://api.line.me/v2/bot/message/reply');
+    assert.ok(gasCall,'GAS receives the personal calendar command');
+    assert.equal(gasCall.body.kind,'personal_calendar_menu');
+    assert.equal(gasCall.body.channel,'backup');
+    assert.ok(replyCall,'LINE receives a final reply');
   }finally{globalThis.fetch=oldFetch;}
 });
