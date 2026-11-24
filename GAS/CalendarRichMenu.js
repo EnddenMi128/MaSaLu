@@ -100,8 +100,14 @@ function masaluRefreshOwnCalendarMenu_(uid, channelName) {
   if (!page) return {ok:true,code:'menu_waiting',message:'本週月曆圖片正在更新，請稍後再試。'};
   const channel = channels.find(item=>item.name===(channelName || 'primary'));
   if (!channel) return {ok:true,code:'menu_unavailable',message:'這個 LINE 帳號的月曆選單尚未啟用。'};
-  if (channel.uids && !channel.uids.has(uid))
-    return {ok:true,code:'menu_unbound',message:'請先完成第二個 LINE 官方帳號的好友驗證。'};
+  if (channel.uids && !channel.uids.has(uid)) {
+    // A user may have joined the second OA before its follow webhook was ready.
+    // Verify the existing roster-linked UID with the SECOND channel itself.
+    // Never trust the typed employee ID or merely the webhook's presence.
+    if (!masaluVerifyAndRememberBackupFriend_(uid, channel.token))
+      return {ok:true,code:'menu_unbound',message:'請先完成第二個 LINE 官方帳號的好友驗證。'};
+    channel.uids.add(uid);
+  }
   const lock = LockService.getScriptLock();
   lock.waitLock(20000);
   try {
