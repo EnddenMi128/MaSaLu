@@ -1,0 +1,27 @@
+name: Secondary OA friend recovery review (no deployment)
+on:
+  push:
+    branches:
+      - fix/backup-friend-self-recovery-20261124
+  pull_request:
+    branches:
+      - main
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check GAS and Worker syntax
+        run: |
+          node --check GAS/AccountLink.js
+          node --check GAS/CalendarRichMenu.js
+          node --check cloudflare/workers.js
+      - name: Test backup friend security and existing functionality
+        run: node --test tests/*.mjs
+      - name: Check HTML scripts
+        run: node -e 'const vm=require("node:vm"),fs=require("node:fs");for(const m of fs.readFileSync("index.html","utf8").matchAll(/<script(?:\\s[^>]*)?>([\\s\\S]*?)<\\/script>/g))new vm.Script(m[1]);'
