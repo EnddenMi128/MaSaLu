@@ -32,7 +32,7 @@ function prepare({roster={A10:{uid,name:'A10'}},status=200,profileUid=uid,friend
     properties:props,assets:'mock',page:{start:'2026-11-22',end:'2026-12-05'},
     channels:[{name:channel,token:channel==='backup'?'backup-token':'primary-token',
       prefix:channel==='backup'?'MASALU_BACKUP_PERSONAL_MENU_':'MASALU_PERSONAL_MENU_',
-      ...(channel==='backup'?{uids:new Set((state.MASALU_BACKUP_FRIEND_UIDS||'').split(/[\\s,]+/).filter(Boolean))}:{})}]
+      ...(channel==='backup'?{uids:new Set((state.MASALU_BACKUP_FRIEND_UIDS||'').split(/[\s,]+/).filter(Boolean))}:{})}]
   });
   ctx.masaluEnsureDefaultCalendarMenu_=()=>{};
   ctx.masaluSyncPersonalMenus_=(_page,_assets,_token,_props,who,_prefix,allow)=>{synced=true;
