@@ -27,8 +27,8 @@ function setup(rows,roster={A10:{uid},A11:{uid:another}}){
 test('pending shifts render two versioned choices per assignment',()=>{
   const buttons=setup([makeRow(),makeRow({id:second,date:'2026-11-27',shift:'田園',version:3})]);
   assert.equal(buttons.length,4);
-  assert.deepEqual(buttons.map(b=>b.action.type),['postback','postback','postback','postback']);
-  assert.deepEqual(buttons.map(b=>b.action.label),['11/26 玉門 同意','11/26 玉門 不同意','11/27 田園 同意','11/27 田園 不同意']);
+  assert.deepEqual(Array.from(buttons,b=>b.action.type),['postback','postback','postback','postback']);
+  assert.deepEqual(Array.from(buttons,b=>b.action.label),['11/26 玉門 同意','11/26 玉門 不同意','11/27 田園 同意','11/27 田園 不同意']);
   for(const b of buttons){
     const qs=new URLSearchParams(b.action.data);
     assert.equal(qs.get('action'),'shift_reply');
