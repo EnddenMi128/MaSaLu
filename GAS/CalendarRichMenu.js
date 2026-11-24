@@ -100,8 +100,14 @@ function masaluRefreshOwnCalendarMenu_(uid, channelName) {
   if (!page) return {ok:true,code:'menu_waiting',message:'本週月曆圖片正在更新，請稍後再試。'};
   const channel = channels.find(item=>item.name===(channelName || 'primary'));
   if (!channel) return {ok:true,code:'menu_unavailable',message:'這個 LINE 帳號的月曆選單尚未啟用。'};
-  if (channel.uids && !channel.uids.has(uid))
-    return {ok:true,code:'menu_unbound',message:'請先完成第二個 LINE 官方帳號的好友驗證。'};
+  if (channel.uids && !channel.uids.has(uid)) {
+    // A user may have joined the second OA before its follow webhook was ready.
+    // Verify the existing roster-linked UID with the SECOND channel itself.
+    // Never trust the typed employee ID or merely the webhook's presence.
+    if (!masaluVerifyAndRememberBackupFriend_(uid, channel.token))
+      return {ok:true,code:'menu_unbound',message:'請先完成第二個 LINE 官方帳號的好友驗證。'};
+    channel.uids.add(uid);
+  }
   const lock = LockService.getScriptLock();
   lock.waitLock(20000);
   try {
@@ -120,11 +126,58 @@ function masaluRefreshOwnCalendarMenu_(uid, channelName) {
     ].join('\n'));
     const details = list.join('\n\n');
     const text = details.length > 1500 ? details.slice(0,1500)+'…\n開啟排班月曆查看完整名單。' : details;
-    return {ok:true,code:status,message:list.length ? ['個人班表',text,'',messages[status]].join('\n') : messages[status],
-      ...(list.length?{quickReply:{items:[masaluCalendarActionButton_('我要請假','leave_pick',0)]}}:{})};
+    // The calendar overview is not an actionable shift notification. Add real,
+    // versioned shift_reply postbacks for up to six of this employee's pending
+    // assignments so the same secure reply handler updates the spreadsheet.
+    const pendingButtons = list.length ? masaluPendingCalendarReplyButtons_(uid,page) : [];
+    const quickReplyItems = [...pendingButtons,
+      ...(list.length ? [masaluCalendarActionButton_('我要請假','leave_pick',0)] : [])];
+    const pendingHint = pendingButtons.length ? '\n\n請在下方選擇班次並按「同意」或「不同意」。' : '';
+    return {ok:true,code:status,message:list.length ? ['個人班表',text,'',messages[status]+pendingHint].join('\n') : messages[status],
+      ...(quickReplyItems.length ? {quickReply:{items:quickReplyItems}} : {})};
   } finally {
     lock.releaseLock();
   }
+}
+
+/**
+ * LINE quick replies for outstanding shifts shown in the personal calendar.
+ * Each button uses the existing shift_reply webhook (UUID+version+choice).
+ * The webhook verifies the submitting LINE UID before updating any row.
+ */
+function masaluPendingCalendarReplyButtons_(uid, page) {
+  const roster = employeeIndex_();
+  const matches = Object.keys(roster).filter(id => roster[id].uid === uid);
+  if (matches.length !== 1) return [];
+  const employeeId = matches[0];
+  const sheet = shiftSheet_();
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return [];
+  const rows = sheet.getRange(2, 1, lastRow-1, SHIFT_APP.SHIFT_HEADERS.length).getValues();
+  const waiting = rows.map(row => ({row,date:masaluDate_(row[3])}))
+    .filter(({row,date}) => String(row[2] || '').trim() === employeeId &&
+      date >= page.start && date <= page.end &&
+      /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(String(row[1] || '')) &&
+      Number.isSafeInteger(Number(row[11])) && Number(row[11]) > 0 &&
+      !['同意','不同意','已請假'].includes(String(row[7] || '').trim()) &&
+      ['', '待回覆'].includes(String(row[7] || '').trim()) &&
+      String(row[6] || '').trim())
+    .sort((a,b) => a.date.localeCompare(b.date));
+  const items = [];
+  // LINE limits a quick reply to 13 actions; reserve one for leave requests.
+  for (const {row,date} of waiting.slice(0,6)) {
+    const id = String(row[1]);
+    const version = Number(row[11]);
+    const label = date.slice(5).replace('-','/')+' '+Array.from(String(row[6])).slice(0,4).join('');
+    for (const [choice,title] of [['agree','同意'],['disagree','不同意']]) {
+      items.push({type:'action',action:{
+        type:'postback',label:(label+' '+title).slice(0,20),
+        data:'action=shift_reply&id='+id+'&v='+version+'&choice='+choice,
+        displayText:label+' '+title
+      }});
+    }
+  }
+  return items;
 }
 
 function masaluEnsureDefaultCalendarMenu_(page,assets,token) {

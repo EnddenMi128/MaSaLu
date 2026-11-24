@@ -75,6 +75,33 @@ function masaluRememberBackupFriend_(uid) {
   } finally { lock.releaseLock(); }
 }
 
+/**
+ * Safely recover the second OA friend record when a user joined before
+ * the backup follow webhook was installed. Never trust an employee ID
+ * typed into chat as proof of identity.
+ * Requires a unique already-bound LINE UID and a successful profile lookup
+ * against the second OA's own Channel Access Token.
+ */
+function masaluVerifyAndRememberBackupFriend_(uid, backupToken) {
+  if (!backupToken || !masaluAccountLinkIdentity_(uid)) return false;
+  try {
+    const response = UrlFetchApp.fetch(
+      'https://api.line.me/v2/bot/profile/' + encodeURIComponent(uid), {
+        method: 'get',
+        headers: {Authorization: 'Bearer ' + backupToken},
+        muteHttpExceptions: true
+      });
+    if (response.getResponseCode() !== 200) return false;
+    const profile = JSON.parse(response.getContentText());
+    if (profile.userId !== uid) return false;
+    masaluRememberBackupFriend_(uid);
+    return true;
+  } catch (_) {
+    console.error('第二 LINE 帳號好友驗證暫時失敗');
+    return false;
+  }
+}
+
 /** NFC employee IDs are enrollment instructions, not proof of employee identity.
  * Only an empty roster UID can be enrolled; an existing UID is never replaced.
  * LINE token verification always precedes roster access and mutations.
