@@ -1,0 +1,40 @@
+name: Read-only second OA Worker connectivity probe
+
+on:
+  push:
+    branches:
+      - fix/backup-friend-self-recovery-20261124
+    paths:
+      - .github/workflows/second-oa-connectivity-probe.yml
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Probe second OA Worker without secrets or LINE events
+        shell: bash
+        run: |
+          set -euo pipefail
+          base='https://leader-shift-line-webhook-test.edn869728.workers.dev'
+          health=$(curl --max-time 15 --retry 2 -sS -o /dev/null -w '%{http_code}' "$base/health")
+          webhook=$(curl --max-time 15 --retry 2 -sS -o /dev/null -w '%{http_code}' -X POST \
+            -H 'Content-Type: application/json' \
+            --data '{"events":[]}' "$base/webhook")
+          echo "SECOND OA /health: HTTP $health"
+          echo "SECOND OA unsigned /webhook: HTTP $webhook"
+          if [[ "$health" != 200 ]]; then
+            echo "::error::Second OA Worker is offline or its route is wrong."
+            exit 1
+          fi
+          if [[ "$webhook" == 503 ]]; then
+            echo "::error::Second OA Worker has missing required runtime settings."
+            exit 1
+          fi
+          if [[ "$webhook" != 401 ]]; then
+            echo "::error::Unexpected unsigned Webhook status. Needs inspection."
+            exit 1
+          fi
+          echo "Connectivity and required-settings gate OK. Cannot verify LINE channel token matching from this probe."
