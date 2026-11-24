@@ -24,4 +24,5 @@ jobs:
       - name: Test backup friend security and existing functionality
         run: node --test tests/*.mjs
       - name: Check HTML scripts
-        run: node -e 'const vm=require("node:vm"),fs=require("node:fs");for(const m of fs.readFileSync("index.html","utf8").matchAll(/<script(?:\\s[^>]*)?>([\\s\\S]*?)<\\/script>/g))new vm.Script(m[1]);'
+        run: |
+          node -e 'const vm=require("node:vm");const fs=require("node:fs");const html=fs.readFileSync("index.html","utf8");for(const m of html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/g))new vm.Script(m[1]);'
