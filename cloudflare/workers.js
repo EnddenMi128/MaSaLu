@@ -238,7 +238,7 @@ async function handleEvent(event, env, ctx) {
         targetUid: entry[3]
       }, env);
     }
-    if (text === "\u6211\u7684UID") {
+    if (text.normalize("NFKC").replace(/\s+/g, "").toLowerCase() === "我的uid") {
       await replyLine(event.replyToken, "\u60A8\u7684 LINE UID\uFF1A\n" + lineUid + "\n\n\u82E5\u8981\u63A5\u6536\u81E8\u6642\u6392\u73ED\uFF0C\u8ACB\u79C1\u4E0B\u63D0\u4F9B\u7D66\u5718\u9577\u3002\u8ACB\u52FF\u516C\u958B\u5F35\u8CBC\u3002", env);
       return;
     }
