@@ -373,6 +373,8 @@ test('all rich menu shortcuts and new reply buttons reach their respective route
     'action=leave_replacement&serial=L-000001&decision=skip',
     'action=leave_replacement&serial=L-000001&decision=select&staff=A04',
     'action=calendar_menu&choice=leave_pick&value=0',
+    'action=calendar_menu&choice=reply_pick&value=0',
+    'action=calendar_menu&choice=reply_select&value='+token+'%3A1',
     'action=calendar_menu&choice=contact_reply&value='+token,
     'action=vacancy&choice=reject&id='+token
   ]) routes.push({type:'postback',postback:{data}});
@@ -401,6 +403,7 @@ test('all rich menu shortcuts and new reply buttons reach their respective route
       ['calendar_menu_action','contact'],['calendar_menu_action','leave'],['calendar_menu_action','replies'],
       ['vacancy','list'],['personal_calendar_menu',undefined],['leave_replacement','skip'],
       ['leave_replacement','select'],['calendar_menu_action','leave_pick'],
+      ['calendar_menu_action','reply_pick'],['calendar_menu_action','reply_select'],
       ['calendar_menu_action','contact_reply'],['vacancy','reject'],['calendar_menu_action','reply_send']
     ]);
     assert.equal(receipts.length,routes.length);

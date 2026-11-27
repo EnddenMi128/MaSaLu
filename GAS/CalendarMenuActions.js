@@ -58,6 +58,30 @@ function masaluCalendarMenuAction_(input) {
   if (choice==='keyboard') return reply('contact','請在輸入欄接著填寫要傳送的訊息。');
 
   const today = Utilities.formatDate(new Date(),timeZone,'yyyy-MM-dd');
+  if (choice==='reply_pick' || choice==='reply_select') {
+    const page=masaluReplyCalendarPage_(today);
+    const back=masaluCalendarActionButton_('返回','reply_pick',0);
+    if (choice==='reply_pick') {
+      const items=masaluPendingCalendarReplyButtons_(lineUid,page,value);
+      return reply('reply_pick',items.length
+        ? '《排班回覆》\n\n請選擇日期及地點。'
+        : '目前沒有待回覆班次。',[
+        ...items,masaluCalendarActionButton_('我要請假','leave_pick',0)
+      ]);
+    }
+    const match=/^([0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}):([1-9]\d*)$/i.exec(String(value||''));
+    const selected=match && masaluPendingCalendarRows_(lineUid,page)
+      .find(({row})=>String(row[1])===match[1] && Number(row[11])===Number(match[2]));
+    if (!selected) return reply('expired','此班次已更新、已回覆或不屬於您，請重新選擇。',[back]);
+    const {row,date}=selected;
+    const id=String(row[1]),version=Number(row[11]);
+    const items=[['同意','agree'],['不同意','disagree']].map(([label,decision])=>({
+      type:'action',action:{type:'postback',label,displayText:label,
+        data:'action=shift_reply&id='+id+'&v='+version+'&choice='+decision}
+    }));
+    return reply('reply_select','《排班回覆》\n\n🗓️ 日期：'+date.slice(5).replace('-','/')+
+      '\n📍 地點：'+String(row[6]).trim()+'\n\n請確認是否同意此次排班。',[...items,back]);
+  }
   const sheet = shiftSheet_();
   const rows = sheet.getLastRow()<2 ? [] : sheet.getRange(2,1,sheet.getLastRow()-1,SHIFT_APP.SHIFT_HEADERS.length).getValues();
   if (choice==='leave_pick') {

@@ -269,7 +269,7 @@ async function handleEvent(event, env, ctx) {
       const params = new URLSearchParams(data);
       const choice = params.get("choice"), value = params.get("value") || "";
       if (choice === "keyboard") return;
-      if (["contact", "leave", "replies", "leave_detail", "contact_target", "leave_pick", "contact_reply"].includes(choice)) {
+      if (["contact", "leave", "replies", "leave_detail", "contact_target", "leave_pick", "contact_reply", "reply_pick", "reply_select"].includes(choice)) {
         return handleFollowupEvent(event, { kind: "calendar_menu_action", lineUid, eventId, choice, value }, env);
       }
       return;
